@@ -10,6 +10,7 @@
   "icon": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/horizontal-scroll/icon.ico",
   "website": "",
   "lang": "multi",
+  "notes": "If you change the scrolling behavior settings you must fully restart Seanime for it to apply.",
   "payloadURI": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/horizontal-scroll/main.ts",
   "plugin": {
     "version": "1",
@@ -24,6 +25,18 @@
         ]
       }
     }
+  },
+  "userConfig": {
+    "requiresConfig": false,
+    "version": 1,
+    "fields": [
+      {
+        "name": "requireShift",
+        "label": "Require Shift Key to Scroll",
+        "type": "switch",
+        "default": "false"
+      }
+    ]
   },
   "isDevelopment": false
 }
