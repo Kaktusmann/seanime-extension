@@ -6,7 +6,7 @@
 interface DebridProvider {
     name: string
     apiKey: string
-    type: "realdebrid" | "torbox" | "alldebrid"
+    type: "realdebrid" | "torbox" | "alldebrid" | "premiumize"
 }
 
 interface DebridProviders {
@@ -78,7 +78,7 @@ function init() {
         // Function to add a new provider
         function addProvider() {
             const name = newProviderName.current.trim()
-            const type = newProviderType.current as "realdebrid" | "torbox" | "alldebrid"
+            const type = newProviderType.current as "realdebrid" | "torbox" | "alldebrid" | "premiumize"
             const apiKey = newProviderApiKey.current.trim()
 
             if (!name || !apiKey) {
@@ -155,7 +155,8 @@ function init() {
                         options: [
                             { value: "realdebrid", label: "RealDebrid" },
                             { value: "torbox", label: "Torbox" },
-                            { value: "alldebrid", label: "AllDebrid" }
+                            { value: "alldebrid", label: "AllDebrid" },
+                            { value: "premiumize", label: "Premiumize" }
                         ]
                     }),
                     tray.input({ placeholder: "API Key", fieldRef: newProviderApiKey }),

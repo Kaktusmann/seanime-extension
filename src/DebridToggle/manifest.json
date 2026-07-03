@@ -1,11 +1,11 @@
 {
   "id": "debridtoggle",
   "name": "Debrid Toggle",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "manifestURI": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/DebridToggle/manifest.json",
   "language": "typescript",
   "type": "plugin",
-  "description": "Lets you switch between multiple debrid provider API keys (RealDebrid, Torbox and AllDebrid)",
+  "description": "Lets you switch between multiple debrid provider API keys (RealDebrid, Torbox, AllDebrid and Premiumize)",
   "author": "Kaktus",
   "icon": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/DebridToggle/icon.ico",
   "website": "",
