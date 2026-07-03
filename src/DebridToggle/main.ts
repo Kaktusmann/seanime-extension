@@ -65,6 +65,7 @@ function init() {
                     }
                 });
                 activeProvider.set(provider.name);
+                $storage.set("activeProvider", provider.name);
                 status.set("✓ Active: " + provider.name);
                 ctx.toast.success("Switched to " + provider.name);
                 tray.update();
@@ -100,6 +101,7 @@ function init() {
 
             currentProviders[name] = newProvider
             providers.set({ ...currentProviders })
+            $storage.set("providers", currentProviders)
 
             newProviderName.setValue("")
             newProviderApiKey.setValue("")
@@ -112,9 +114,11 @@ function init() {
             const currentProviders = providers.get()
             delete currentProviders[name]
             providers.set({ ...currentProviders })
+            $storage.set("providers", currentProviders)
 
             if (activeProvider.get() === name) {
                 activeProvider.set("")
+                $storage.set("activeProvider", "")
                 status.set("")
             }
 
