@@ -40,9 +40,9 @@
         "label": "How fast should mouse scroll be? (restart Seanime to apply)",
         "type": "number",
         "default": "120",
-        "min": 0,
-        "max": 240,
-        "step": 10
+        "min": "0",
+        "max": "240",
+        "step": "10"
       }
     ]
   },
