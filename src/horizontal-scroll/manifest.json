@@ -1,7 +1,7 @@
 {
   "id": "horizontal-scroll",
   "name": "Horizontal Scroll",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "manifestURI": "https://raw.githubusercontent.com/7r3e/seanime-extension/refs/heads/main/src/horizontal-scroll/manifest.json",
   "language": "typescript",
   "type": "plugin",
@@ -37,16 +37,16 @@
       },
       {
         "name": "speed",
-        "label": "How fast should mouse scroll be? (restart Seanime to apply)",
+        "label": "Scroll interval delay in ms (restart Seanime to apply)",
         "type": "select",
-        "default": 120,
+        "default": "120",
         "options": [
-          0,
-          60,
-          90,
-          120,
-          150,
-          180
+          { "label": "No Delay (0ms)", "value": "0" },
+          { "label": "Fast (60ms)", "value": "60" },
+          { "label": "Medium-Fast (90ms)", "value": "90" },
+          { "label": "Normal (120ms)", "value": "120" },
+          { "label": "Slower (150ms)", "value": "150" },
+          { "label": "Slow (180ms)", "value": "180" }
         ]
       }
     ]
