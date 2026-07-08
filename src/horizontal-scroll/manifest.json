@@ -39,14 +39,14 @@
         "name": "speed",
         "label": "How fast should mouse scroll be? (restart Seanime to apply)",
         "type": "select",
-        "default": "120",
+        "default": 120,
         "options": [
-          "0",
-          "60",
-          "90",
-          "120",
-          "150",
-          "180"
+          0,
+          60,
+          90,
+          120,
+          150,
+          180
         ]
       }
     ]
