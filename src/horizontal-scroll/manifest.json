@@ -6,7 +6,7 @@
   "language": "typescript",
   "type": "plugin",
   "description": "Enables horizontal scrolling on the carousel element.",
-  "author": "Kaktus",
+  "author": "7r3e",
   "icon": "https://raw.githubusercontent.com/7r3e/seanime-extension/refs/heads/main/src/horizontal-scroll/icon.ico",
   "website": "",
   "lang": "multi",

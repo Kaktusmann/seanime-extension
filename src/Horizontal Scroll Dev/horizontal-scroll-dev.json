@@ -1,0 +1,40 @@
+{
+  "id": "horizontal-scroll-dev",
+  "name": "Horizontal Scroll Dev",
+  "version": "1.0.0",
+  "manifestURI": "",
+  "language": "typescript",
+  "type": "plugin",
+  "description": "An example plugin",
+  "author": "7r3e",
+  "icon": "",
+  "website": "",
+  "lang": "multi",
+  "payloadURI": "E:\\Arbeit\\SeanimeDev\\seanime-extension\\src\\horizontal-scroll-dev\\Horizontal Scroll Dev\\provider.ts",
+  "plugin": {
+    "version": "1",
+    "permissions": {
+      "scopes": []
+    }
+  },
+  "userConfig": {
+    "requiresConfig": false,
+    "version": 1,
+    "fields": [
+      {
+        "name": "requireShift",
+        "label": "Require shift key to scroll (restart Seanime to apply)",
+        "type": "switch",
+        "default": "false"
+      },
+      {
+        "name": "speed",
+        "label": "Scroll interval delay in ms (restart Seanime to apply)",
+        "type": "select",
+        "default": "120",
+        "options": ["0", "60", "90", "120", "150", "180"]
+      }
+    ]
+  },
+  "isDevelopment": true
+}
