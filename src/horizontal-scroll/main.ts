@@ -51,7 +51,7 @@ function init() {
                 `if (requireShift && !event.shiftKey) return;` +
                 `if (event.ctrlKey) return;` +
                 `const now = Date.now();` +
-                `if (now - lastScroll < 120) { event.preventDefault(); return; }` +
+                `if (now - lastScroll < speed) { event.preventDefault(); return; }` +
                 `lastScroll = now;` +
                 `const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX)` +
                 `? event.deltaY` +
