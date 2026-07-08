@@ -38,16 +38,11 @@
       {
         "name": "speed",
         "label": "Scroll interval delay in ms (restart Seanime to apply)",
-        "type": "select",
+        "type": "number",
         "default": "120",
-        "options": [
-          { "label": "No Delay (0ms)", "value": "0" },
-          { "label": "Fast (60ms)", "value": "60" },
-          { "label": "Medium-Fast (90ms)", "value": "90" },
-          { "label": "Normal (120ms)", "value": "120" },
-          { "label": "Slower (150ms)", "value": "150" },
-          { "label": "Slow (180ms)", "value": "180" }
-        ]
+        "min": "0",
+        "max": "300",
+        "step": "10"
       }
     ]
   },
