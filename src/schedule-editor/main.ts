@@ -132,7 +132,7 @@ function init() {
         }
 
         const tray = ctx.newTray({
-            iconUrl: "https://raw.githubusercontent.com/Seanime-Extensions/schedule-editor/main/assets/icon.png",
+            iconUrl: "https://raw.githubusercontent.com/Seanime-Extensions/schedule-editor/main/assets/icon.ico",
             withContent: true,
             width: "320px",
         })
