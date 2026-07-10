@@ -76,6 +76,168 @@ function init() {
         e.next()
     })
 
+    function mutateAnimeCollectionEvent(e: { next(): void; animeCollection?: $app.AL_AnimeCollection }) {
+        const GLOBAL_OFFSET_KEY = "scheduleOffsets.global"
+        const ANIME_OFFSETS_KEY = "scheduleOffsets.anime"
+        const LAST_SEEN_KEY = "scheduleOffsets.lastSeenNextAiring"
+        const RECENT_AIR_KEY = "scheduleOffsets.recentAirTimes"
+
+        function parseOffset(raw: string | undefined): number {
+            if (!raw) return 0
+            const str = raw.trim().toLowerCase()
+            if (str === "") return 0
+
+            let sign = 1
+            let rest = str
+            if (rest[0] === "+") {
+                rest = rest.slice(1)
+            } else if (rest[0] === "-") {
+                sign = -1
+                rest = rest.slice(1)
+            }
+            if (rest === "") return NaN
+
+            if (/^\d+(\.\d+)?$/.test(rest)) {
+                return sign * parseFloat(rest)
+            }
+
+            const re = /(\d+(?:\.\d+)?)\s*(h|m)/g
+            let match: RegExpExecArray | null
+            let total = 0
+            let consumed = ""
+            while ((match = re.exec(rest)) !== null) {
+                consumed += match[0]
+                const value = parseFloat(match[1])
+                total += match[2] === "h" ? value * 60 : value
+            }
+            if (consumed === "" || consumed.replace(/\s/g, "") !== rest.replace(/\s/g, "")) return NaN
+
+            return sign * total
+        }
+
+        function getOffsetMinutesForMedia(mediaId: number): number {
+            const global = parseOffset($storage.get<string>(GLOBAL_OFFSET_KEY) || "")
+            const animeOffsets = $storage.get<Record<string, string>>(ANIME_OFFSETS_KEY) || {}
+            const specific = parseOffset(animeOffsets[String(mediaId)])
+            return (isNaN(global) ? 0 : global) + (isNaN(specific) ? 0 : specific)
+        }
+
+        const lists = e.animeCollection && e.animeCollection.MediaListCollection && e.animeCollection.MediaListCollection.lists
+        if (lists) {
+            const lastSeen = $storage.get<Record<string, { episode: number; airingAt: number }>>(LAST_SEEN_KEY) || {}
+            const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
+            let lastSeenChanged = false
+            let recentAirChanged = false
+
+            for (const list of lists) {
+                if (!list || !list.entries) continue
+                for (const entry of list.entries) {
+                    const media = entry && entry.media
+                    if (!media || !media.nextAiringEpisode) continue
+
+                    const mediaIdStr = String(media.id)
+                    const rawEpisode = media.nextAiringEpisode.episode
+                    const rawAiringAt = media.nextAiringEpisode.airingAt
+
+                    const prev = lastSeen[mediaIdStr]
+                    if (prev && prev.episode < rawEpisode) {
+                        recentAirTimes[`${mediaIdStr}-${prev.episode}`] = prev.airingAt
+                        recentAirChanged = true
+                    }
+                    if (!prev || prev.episode !== rawEpisode || prev.airingAt !== rawAiringAt) {
+                        lastSeen[mediaIdStr] = { episode: rawEpisode, airingAt: rawAiringAt }
+                        lastSeenChanged = true
+                    }
+
+                    const minutes = getOffsetMinutesForMedia(media.id)
+                    if (minutes) {
+                        const deltaSeconds = minutes * 60
+                        media.nextAiringEpisode.airingAt = rawAiringAt + deltaSeconds
+                        media.nextAiringEpisode.timeUntilAiring += deltaSeconds
+                    }
+                }
+            }
+
+            if (lastSeenChanged) $storage.set(LAST_SEEN_KEY, lastSeen)
+            if (recentAirChanged) $storage.set(RECENT_AIR_KEY, recentAirTimes)
+        }
+
+        e.next()
+    }
+
+    $app.onGetAnimeCollection(mutateAnimeCollectionEvent)
+    $app.onGetRawAnimeCollection(mutateAnimeCollectionEvent)
+    $app.onGetCachedAnimeCollection(mutateAnimeCollectionEvent)
+    $app.onGetCachedRawAnimeCollection(mutateAnimeCollectionEvent)
+
+    $app.onAnimeLibraryStreamCollection((e) => {
+        const GLOBAL_OFFSET_KEY = "scheduleOffsets.global"
+        const ANIME_OFFSETS_KEY = "scheduleOffsets.anime"
+        const RECENT_AIR_KEY = "scheduleOffsets.recentAirTimes"
+
+        function parseOffset(raw: string | undefined): number {
+            if (!raw) return 0
+            const str = raw.trim().toLowerCase()
+            if (str === "") return 0
+
+            let sign = 1
+            let rest = str
+            if (rest[0] === "+") {
+                rest = rest.slice(1)
+            } else if (rest[0] === "-") {
+                sign = -1
+                rest = rest.slice(1)
+            }
+            if (rest === "") return NaN
+
+            if (/^\d+(\.\d+)?$/.test(rest)) {
+                return sign * parseFloat(rest)
+            }
+
+            const re = /(\d+(?:\.\d+)?)\s*(h|m)/g
+            let match: RegExpExecArray | null
+            let total = 0
+            let consumed = ""
+            while ((match = re.exec(rest)) !== null) {
+                consumed += match[0]
+                const value = parseFloat(match[1])
+                total += match[2] === "h" ? value * 60 : value
+            }
+            if (consumed === "" || consumed.replace(/\s/g, "") !== rest.replace(/\s/g, "")) return NaN
+
+            return sign * total
+        }
+
+        function getOffsetMinutesForMedia(mediaId: number): number {
+            const global = parseOffset($storage.get<string>(GLOBAL_OFFSET_KEY) || "")
+            const animeOffsets = $storage.get<Record<string, string>>(ANIME_OFFSETS_KEY) || {}
+            const specific = parseOffset(animeOffsets[String(mediaId)])
+            return (isNaN(global) ? 0 : global) + (isNaN(specific) ? 0 : specific)
+        }
+
+        const list = e.streamCollection && e.streamCollection.continueWatchingList
+        if (list && list.length) {
+            const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
+            const nowSeconds = Math.floor(Date.now() / 1000)
+
+            e.streamCollection!.continueWatchingList = list.filter((episode) => {
+                if (!episode || episode.isDownloaded) return true
+                const mediaId = episode.baseAnime && episode.baseAnime.id
+                if (!mediaId) return true
+
+                const airedAt = recentAirTimes[`${mediaId}-${episode.episodeNumber}`]
+                if (airedAt === undefined) return true
+
+                const minutes = getOffsetMinutesForMedia(mediaId)
+                if (!minutes || minutes <= 0) return true
+
+                return nowSeconds >= airedAt + minutes * 60
+            })
+        }
+
+        e.next()
+    })
+
     $ui.register((ctx) => {
         const GLOBAL_OFFSET_KEY = "scheduleOffsets.global"
         const ANIME_OFFSETS_KEY = "scheduleOffsets.anime"
@@ -128,7 +290,7 @@ function init() {
 
         function refreshSchedule() {
             ctx.anime.clearScheduleCache()
-            $app.invalidateClientQuery(["ANIME-COLLECTION-get-anime-collection-schedule"])
+            $app.invalidateClientQuery(["ANIME-COLLECTION-get-anime-collection-schedule", "ANIME-COLLECTION-get-library-collection"])
         }
 
         const tray = ctx.newTray({
