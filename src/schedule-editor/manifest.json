@@ -9,7 +9,7 @@
   "author": "Kaktus",
   "icon": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/schedule-editor/icon.ico",
   "website": "",
-  "lang": "multi",
+  "lang": "en",
   "payloadURI": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/schedule-editor/main.ts",
   "plugin": {
     "version": "1",
