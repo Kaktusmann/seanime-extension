@@ -27,6 +27,18 @@ function init() {
         const MAPPING_KEY = "livechart.mapping"
         const SCHEDULES_KEY = "livechart.schedules"
         const OVERRIDE_KEY = "livechart.override"
+        const RECENT_AIR_KEY = "livechart.recentAirTimes"
+
+        // Records the corrected air time we resolved for a specific episode so
+        // onAnimeLibraryStreamCollection can later suppress it from "continue
+        // watching" until that corrected time actually passes - otherwise a
+        // delayed dub/simulcast would show up as watchable as soon as AniList's
+        // own (earlier) raw time passes, before it's really out.
+        function recordRecentAirTime(mediaId: number, episodeNumber: number, seconds: number) {
+            const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
+            recentAirTimes[`${mediaId}-${episodeNumber}`] = seconds
+            $storage.set(RECENT_AIR_KEY, recentAirTimes)
+        }
 
         function getOverrides(): Record<string, string> {
             return $storage.get<Record<string, string>>(OVERRIDE_KEY) || {}
@@ -95,6 +107,7 @@ function init() {
                     const d = new Date(seconds * 1000)
                     item.dateTime = d.toISOString()
                     item.time = `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`
+                    recordRecentAirTime(item.mediaId, item.episodeNumber, seconds)
                 }
             } catch (err) {
                 // keep this item's original AniList-derived time
@@ -108,6 +121,16 @@ function init() {
         const MAPPING_KEY = "livechart.mapping"
         const SCHEDULES_KEY = "livechart.schedules"
         const OVERRIDE_KEY = "livechart.override"
+        const RECENT_AIR_KEY = "livechart.recentAirTimes"
+
+        // See the matching helper in onAnimeScheduleItems: records the
+        // corrected air time per episode so onAnimeLibraryStreamCollection can
+        // suppress "continue watching" entries until it actually passes.
+        function recordRecentAirTime(mediaId: number, episodeNumber: number, seconds: number) {
+            const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
+            recentAirTimes[`${mediaId}-${episodeNumber}`] = seconds
+            $storage.set(RECENT_AIR_KEY, recentAirTimes)
+        }
 
         function getOverrides(): Record<string, string> {
             return $storage.get<Record<string, string>>(OVERRIDE_KEY) || {}
@@ -177,6 +200,7 @@ function init() {
                         if (seconds != null) {
                             media.nextAiringEpisode.airingAt = seconds
                             media.nextAiringEpisode.timeUntilAiring = seconds - nowSeconds
+                            recordRecentAirTime(media.id, media.nextAiringEpisode.episode, seconds)
                         }
                     } catch (err) {
                         // keep this entry's original AniList-derived time
@@ -192,11 +216,46 @@ function init() {
     $app.onGetCachedAnimeCollection(mutateAnimeCollectionEvent)
     $app.onGetCachedRawAnimeCollection(mutateAnimeCollectionEvent)
 
+    // Hides non-downloaded "continue watching" entries until the corrected air
+    // time recorded above has actually passed, so a delayed dub/simulcast
+    // doesn't show up as watchable just because AniList's own (earlier) raw
+    // time already passed. Mirrors the schedule-offset plugin's equivalent hook.
+    $app.onAnimeLibraryStreamCollection((e) => {
+        const RECENT_AIR_KEY = "livechart.recentAirTimes"
+        const SUPPRESS_CONTINUE_WATCHING_KEY = "livechart.suppressContinueWatching"
+
+        // Undefined (never toggled) defaults to enabled, matching the
+        // schedule-offset plugin's always-on behavior; only an explicit
+        // false (user disabled it in the tray) turns this off.
+        const suppressEnabled = $storage.get<boolean>(SUPPRESS_CONTINUE_WATCHING_KEY) !== false
+
+        const list = e.streamCollection && e.streamCollection.continueWatchingList
+        if (suppressEnabled && list && list.length) {
+            const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
+            const nowSeconds = Math.floor(Date.now() / 1000)
+
+            e.streamCollection!.continueWatchingList = list.filter((episode) => {
+                if (!episode || episode.isDownloaded) return true
+                const mediaId = episode.baseAnime && episode.baseAnime.id
+                if (!mediaId) return true
+
+                const correctedAt = recentAirTimes[`${mediaId}-${episode.episodeNumber}`]
+                if (correctedAt === undefined) return true
+
+                return nowSeconds >= correctedAt
+            })
+        }
+
+        e.next()
+    })
+
     $ui.register((ctx) => {
         const GLOBAL_MODE_KEY = "livechart.globalMode"
         const MAPPING_KEY = "livechart.mapping"
         const SCHEDULES_KEY = "livechart.schedules"
         const OVERRIDE_KEY = "livechart.override"
+        const RECENT_AIR_KEY = "livechart.recentAirTimes"
+        const SUPPRESS_CONTINUE_WATCHING_KEY = "livechart.suppressContinueWatching"
 
         const MAPPING_TTL_HIT = 30 * 24 * 60 * 60 * 1000
         const MAPPING_TTL_MISS = 3 * 24 * 60 * 60 * 1000
@@ -407,7 +466,9 @@ function init() {
         }
 
         const tray = ctx.newTray({
-            iconUrl: "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/livechart-schedule/icon.ico",
+            iconUrl: "data:image/svg+xml;utf8," + encodeURIComponent(
+                '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23e2e2e2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="16" cy="16" r="2.5"/></svg>',
+            ),
             withContent: true,
             width: "320px",
         })
@@ -424,6 +485,7 @@ function init() {
         const globalModeRef = ctx.fieldRef<string>($storage.get<string>(GLOBAL_MODE_KEY) || "japan")
         const mediaIdRef = ctx.fieldRef<string>("")
         const overrideRef = ctx.fieldRef<string>(DEFAULT_OVERRIDE_VALUE)
+        const suppressContinueWatchingRef = ctx.fieldRef<boolean>($storage.get<boolean>(SUPPRESS_CONTINUE_WATCHING_KEY) !== false)
 
         function getEnteredMediaId(): number | null {
             const idStr = (mediaIdRef.current || "").trim()
@@ -488,6 +550,12 @@ function init() {
             ctx.toast.success(`Global schedule preference set to ${v === "japan" ? "Japan Broadcast" : "Simulcast"}`)
         })
 
+        suppressContinueWatchingRef.onValueChange((v) => {
+            $storage.set(SUPPRESS_CONTINUE_WATCHING_KEY, v)
+            refreshSchedule()
+            ctx.toast.success(v ? "Continue Watching will wait for the real release" : "Continue Watching suppression disabled")
+        })
+
         overrideRef.onValueChange((v) => {
             const id = getEnteredMediaId()
             if (!id) {
@@ -525,6 +593,7 @@ function init() {
         ctx.registerEventHandler("clear-lc-cache", () => {
             $storage.remove(MAPPING_KEY)
             $storage.remove(SCHEDULES_KEY)
+            $storage.remove(RECENT_AIR_KEY)
             refreshSchedule()
             ctx.toast.success("Cleared LiveChart cache")
             const id = getEnteredMediaId()
@@ -567,6 +636,11 @@ function init() {
                     "Simulcast picks the subbed release automatically.",
                     { style: { fontSize: "11px", opacity: "0.7" } },
                 ),
+                tray.switch({
+                    label: "Hide unreleased episodes from Continue Watching",
+                    side: "left",
+                    fieldRef: suppressContinueWatchingRef,
+                }),
             ]
 
             const progress = warmProgress.get()

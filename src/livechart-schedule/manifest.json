@@ -1,7 +1,7 @@
 {
   "id": "livechart-schedule",
   "name": "LiveChart Schedule",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "manifestURI": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/livechart-schedule/manifest.json",
   "language": "typescript",
   "type": "plugin",
