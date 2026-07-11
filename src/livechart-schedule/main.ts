@@ -29,11 +29,6 @@ function init() {
         const OVERRIDE_KEY = "livechart.override"
         const RECENT_AIR_KEY = "livechart.recentAirTimes"
 
-        // Records the corrected air time we resolved for a specific episode so
-        // onAnimeLibraryStreamCollection can later suppress it from "continue
-        // watching" until that corrected time actually passes - otherwise a
-        // delayed dub/simulcast would show up as watchable as soon as AniList's
-        // own (earlier) raw time passes, before it's really out.
         function recordRecentAirTime(mediaId: number, episodeNumber: number, seconds: number) {
             const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
             recentAirTimes[`${mediaId}-${episodeNumber}`] = seconds
@@ -62,8 +57,8 @@ function init() {
             return sub || nonJp[0] || jp || schedules[0]
         }
 
-        function resolveAirTimeSeconds(mediaId: number, episodeNumber: number, rawSeconds: number | null): number | null {
-            if (!mediaId || !episodeNumber) return null
+        function resolveNextEpisodeInfo(mediaId: number, anilistEpisodeNumber: number, rawSeconds: number | null): { episode: number; seconds: number } | null {
+            if (!mediaId || !anilistEpisodeNumber) return null
 
             const mappingEntry = ($storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {})[String(mediaId)]
             const lcId = mappingEntry ? mappingEntry.id : null
@@ -76,9 +71,9 @@ function init() {
             const chosen = pickSchedule(mediaId, schedules)
             if (!chosen) return null
 
-            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber === episodeNumber) {
+            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber != null && chosen.nextEpisodeNumber <= anilistEpisodeNumber) {
                 const t = new Date(chosen.nextEpisodeDate).getTime()
-                if (!isNaN(t)) return Math.floor(t / 1000)
+                if (!isNaN(t)) return { episode: chosen.nextEpisodeNumber, seconds: Math.floor(t / 1000) }
             }
 
             if (!chosen.isJapan && rawSeconds != null) {
@@ -87,7 +82,7 @@ function init() {
                     const jpMs = new Date(jp.nextEpisodeDate).getTime()
                     const chosenMs = new Date(chosen.nextEpisodeDate).getTime()
                     if (!isNaN(jpMs) && !isNaN(chosenMs)) {
-                        return rawSeconds + Math.round((chosenMs - jpMs) / 1000)
+                        return { episode: anilistEpisodeNumber, seconds: rawSeconds + Math.round((chosenMs - jpMs) / 1000) }
                     }
                 }
             }
@@ -102,12 +97,13 @@ function init() {
                     const t = Date.parse(item.dateTime)
                     if (!isNaN(t)) rawSeconds = Math.floor(t / 1000)
                 }
-                const seconds = resolveAirTimeSeconds(item.mediaId, item.episodeNumber, rawSeconds)
-                if (seconds != null) {
-                    const d = new Date(seconds * 1000)
+                const result = resolveNextEpisodeInfo(item.mediaId, item.episodeNumber, rawSeconds)
+                if (result != null) {
+                    const d = new Date(result.seconds * 1000)
+                    item.episodeNumber = result.episode
                     item.dateTime = d.toISOString()
                     item.time = `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`
-                    recordRecentAirTime(item.mediaId, item.episodeNumber, seconds)
+                    recordRecentAirTime(item.mediaId, result.episode, result.seconds)
                 }
             } catch (err) {
                 // keep this item's original AniList-derived time
@@ -123,9 +119,6 @@ function init() {
         const OVERRIDE_KEY = "livechart.override"
         const RECENT_AIR_KEY = "livechart.recentAirTimes"
 
-        // See the matching helper in onAnimeScheduleItems: records the
-        // corrected air time per episode so onAnimeLibraryStreamCollection can
-        // suppress "continue watching" entries until it actually passes.
         function recordRecentAirTime(mediaId: number, episodeNumber: number, seconds: number) {
             const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
             recentAirTimes[`${mediaId}-${episodeNumber}`] = seconds
@@ -154,8 +147,8 @@ function init() {
             return sub || nonJp[0] || jp || schedules[0]
         }
 
-        function resolveAirTimeSeconds(mediaId: number, episodeNumber: number, rawSeconds: number | null): number | null {
-            if (!mediaId || !episodeNumber) return null
+        function resolveNextEpisodeInfo(mediaId: number, anilistEpisodeNumber: number, rawSeconds: number | null): { episode: number; seconds: number } | null {
+            if (!mediaId || !anilistEpisodeNumber) return null
 
             const mappingEntry = ($storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {})[String(mediaId)]
             const lcId = mappingEntry ? mappingEntry.id : null
@@ -168,9 +161,9 @@ function init() {
             const chosen = pickSchedule(mediaId, schedules)
             if (!chosen) return null
 
-            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber === episodeNumber) {
+            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber != null && chosen.nextEpisodeNumber <= anilistEpisodeNumber) {
                 const t = new Date(chosen.nextEpisodeDate).getTime()
-                if (!isNaN(t)) return Math.floor(t / 1000)
+                if (!isNaN(t)) return { episode: chosen.nextEpisodeNumber, seconds: Math.floor(t / 1000) }
             }
 
             if (!chosen.isJapan && rawSeconds != null) {
@@ -179,7 +172,7 @@ function init() {
                     const jpMs = new Date(jp.nextEpisodeDate).getTime()
                     const chosenMs = new Date(chosen.nextEpisodeDate).getTime()
                     if (!isNaN(jpMs) && !isNaN(chosenMs)) {
-                        return rawSeconds + Math.round((chosenMs - jpMs) / 1000)
+                        return { episode: anilistEpisodeNumber, seconds: rawSeconds + Math.round((chosenMs - jpMs) / 1000) }
                     }
                 }
             }
@@ -196,11 +189,12 @@ function init() {
                     const media = entry && entry.media
                     if (!media || !media.nextAiringEpisode) continue
                     try {
-                        const seconds = resolveAirTimeSeconds(media.id, media.nextAiringEpisode.episode, media.nextAiringEpisode.airingAt)
-                        if (seconds != null) {
-                            media.nextAiringEpisode.airingAt = seconds
-                            media.nextAiringEpisode.timeUntilAiring = seconds - nowSeconds
-                            recordRecentAirTime(media.id, media.nextAiringEpisode.episode, seconds)
+                        const result = resolveNextEpisodeInfo(media.id, media.nextAiringEpisode.episode, media.nextAiringEpisode.airingAt)
+                        if (result != null) {
+                            media.nextAiringEpisode.episode = result.episode
+                            media.nextAiringEpisode.airingAt = result.seconds
+                            media.nextAiringEpisode.timeUntilAiring = result.seconds - nowSeconds
+                            recordRecentAirTime(media.id, result.episode, result.seconds)
                         }
                     } catch (err) {
                         // keep this entry's original AniList-derived time
@@ -216,9 +210,6 @@ function init() {
     $app.onGetCachedAnimeCollection(mutateAnimeCollectionEvent)
     $app.onGetCachedRawAnimeCollection(mutateAnimeCollectionEvent)
 
-    // The anime entry page's own countdown reads entry.media.nextAiringEpisode
-    // from this hook, not from the collection hooks above - it's a completely
-    // separate fetch path, so it needs its own copy of the same correction.
     $app.onAnimeEntry((e) => {
         const GLOBAL_MODE_KEY = "livechart.globalMode"
         const MAPPING_KEY = "livechart.mapping"
@@ -254,8 +245,8 @@ function init() {
             return sub || nonJp[0] || jp || schedules[0]
         }
 
-        function resolveAirTimeSeconds(mediaId: number, episodeNumber: number, rawSeconds: number | null): number | null {
-            if (!mediaId || !episodeNumber) return null
+        function resolveNextEpisodeInfo(mediaId: number, anilistEpisodeNumber: number, rawSeconds: number | null): { episode: number; seconds: number } | null {
+            if (!mediaId || !anilistEpisodeNumber) return null
 
             const mappingEntry = ($storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {})[String(mediaId)]
             const lcId = mappingEntry ? mappingEntry.id : null
@@ -268,9 +259,9 @@ function init() {
             const chosen = pickSchedule(mediaId, schedules)
             if (!chosen) return null
 
-            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber === episodeNumber) {
+            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber != null && chosen.nextEpisodeNumber <= anilistEpisodeNumber) {
                 const t = new Date(chosen.nextEpisodeDate).getTime()
-                if (!isNaN(t)) return Math.floor(t / 1000)
+                if (!isNaN(t)) return { episode: chosen.nextEpisodeNumber, seconds: Math.floor(t / 1000) }
             }
 
             if (!chosen.isJapan && rawSeconds != null) {
@@ -279,7 +270,7 @@ function init() {
                     const jpMs = new Date(jp.nextEpisodeDate).getTime()
                     const chosenMs = new Date(chosen.nextEpisodeDate).getTime()
                     if (!isNaN(jpMs) && !isNaN(chosenMs)) {
-                        return rawSeconds + Math.round((chosenMs - jpMs) / 1000)
+                        return { episode: anilistEpisodeNumber, seconds: rawSeconds + Math.round((chosenMs - jpMs) / 1000) }
                     }
                 }
             }
@@ -291,11 +282,12 @@ function init() {
         if (media && media.nextAiringEpisode) {
             try {
                 const nowSeconds = Math.floor(Date.now() / 1000)
-                const seconds = resolveAirTimeSeconds(media.id, media.nextAiringEpisode.episode, media.nextAiringEpisode.airingAt)
-                if (seconds != null) {
-                    media.nextAiringEpisode.airingAt = seconds
-                    media.nextAiringEpisode.timeUntilAiring = seconds - nowSeconds
-                    recordRecentAirTime(media.id, media.nextAiringEpisode.episode, seconds)
+                const result = resolveNextEpisodeInfo(media.id, media.nextAiringEpisode.episode, media.nextAiringEpisode.airingAt)
+                if (result != null) {
+                    media.nextAiringEpisode.episode = result.episode
+                    media.nextAiringEpisode.airingAt = result.seconds
+                    media.nextAiringEpisode.timeUntilAiring = result.seconds - nowSeconds
+                    recordRecentAirTime(media.id, result.episode, result.seconds)
                 }
             } catch (err) {
                 // keep this entry's original AniList-derived time
@@ -304,9 +296,6 @@ function init() {
         e.next()
     })
 
-    // The Schedule screen's "Upcoming" widget and the Home screen's upcoming
-    // list both read from this hook's data, via a separate fetch/query path
-    // from every hook above - same correction needed, once more.
     $app.onUpcomingEpisodes((e) => {
         const GLOBAL_MODE_KEY = "livechart.globalMode"
         const MAPPING_KEY = "livechart.mapping"
@@ -342,8 +331,8 @@ function init() {
             return sub || nonJp[0] || jp || schedules[0]
         }
 
-        function resolveAirTimeSeconds(mediaId: number, episodeNumber: number, rawSeconds: number | null): number | null {
-            if (!mediaId || !episodeNumber) return null
+        function resolveNextEpisodeInfo(mediaId: number, anilistEpisodeNumber: number, rawSeconds: number | null): { episode: number; seconds: number } | null {
+            if (!mediaId || !anilistEpisodeNumber) return null
 
             const mappingEntry = ($storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {})[String(mediaId)]
             const lcId = mappingEntry ? mappingEntry.id : null
@@ -356,9 +345,9 @@ function init() {
             const chosen = pickSchedule(mediaId, schedules)
             if (!chosen) return null
 
-            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber === episodeNumber) {
+            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber != null && chosen.nextEpisodeNumber <= anilistEpisodeNumber) {
                 const t = new Date(chosen.nextEpisodeDate).getTime()
-                if (!isNaN(t)) return Math.floor(t / 1000)
+                if (!isNaN(t)) return { episode: chosen.nextEpisodeNumber, seconds: Math.floor(t / 1000) }
             }
 
             if (!chosen.isJapan && rawSeconds != null) {
@@ -367,7 +356,7 @@ function init() {
                     const jpMs = new Date(jp.nextEpisodeDate).getTime()
                     const chosenMs = new Date(chosen.nextEpisodeDate).getTime()
                     if (!isNaN(jpMs) && !isNaN(chosenMs)) {
-                        return rawSeconds + Math.round((chosenMs - jpMs) / 1000)
+                        return { episode: anilistEpisodeNumber, seconds: rawSeconds + Math.round((chosenMs - jpMs) / 1000) }
                     }
                 }
             }
@@ -379,11 +368,16 @@ function init() {
         for (const episode of (e.upcomingEpisodes && e.upcomingEpisodes.episodes) || []) {
             if (!episode) continue
             try {
-                const seconds = resolveAirTimeSeconds(episode.mediaId, episode.episodeNumber, episode.airingAt)
-                if (seconds != null) {
-                    episode.airingAt = seconds
-                    episode.timeUntilAiring = seconds - nowSeconds
-                    recordRecentAirTime(episode.mediaId, episode.episodeNumber, seconds)
+                const result = resolveNextEpisodeInfo(episode.mediaId, episode.episodeNumber, episode.airingAt)
+                if (result != null) {
+                    // episodeMetadata (title/image/summary) was fetched for the
+                    // original episode number - stale metadata under a
+                    // different number would be worse than none.
+                    if (result.episode !== episode.episodeNumber) episode.episodeMetadata = undefined
+                    episode.episodeNumber = result.episode
+                    episode.airingAt = result.seconds
+                    episode.timeUntilAiring = result.seconds - nowSeconds
+                    recordRecentAirTime(episode.mediaId, result.episode, result.seconds)
                 }
             } catch (err) {
                 // keep this episode's original AniList-derived time
@@ -392,17 +386,10 @@ function init() {
         e.next()
     })
 
-    // Hides non-downloaded "continue watching" entries until the corrected air
-    // time recorded above has actually passed, so a delayed dub/simulcast
-    // doesn't show up as watchable just because AniList's own (earlier) raw
-    // time already passed. Mirrors the schedule-offset plugin's equivalent hook.
     $app.onAnimeLibraryStreamCollection((e) => {
         const RECENT_AIR_KEY = "livechart.recentAirTimes"
         const SUPPRESS_CONTINUE_WATCHING_KEY = "livechart.suppressContinueWatching"
 
-        // Undefined (never toggled) defaults to enabled, matching the
-        // schedule-offset plugin's always-on behavior; only an explicit
-        // false (user disabled it in the tray) turns this off.
         const suppressEnabled = $storage.get<boolean>(SUPPRESS_CONTINUE_WATCHING_KEY) !== false
 
         const list = e.streamCollection && e.streamCollection.continueWatchingList
@@ -442,6 +429,7 @@ function init() {
         const DEFAULT_OVERRIDE_VALUE = "__use_global_default__"
 
         const LC_ENDPOINT = "https://www.livechart.me/graphql"
+
         const LC_HEADERS: Record<string, string> = {
             "Content-Type": "application/json",
             "Accept": "multipart/mixed;deferSpec=20220824, application/graphql-response+json, application/json",
@@ -573,9 +561,6 @@ function init() {
             return body.data
         }
 
-        // AniList mediaId -> LiveChart databaseId, cached in storage since it costs
-        // a live search request. A confirmed miss is cached too (shorter TTL) so we
-        // don't re-search on every warm-up pass for anime LiveChart doesn't have.
         async function discoverLcAnimeId(mediaId: number, forceRefresh: boolean): Promise<string | null> {
             const mapping = readMapping()
             const key = String(mediaId)
@@ -635,7 +620,7 @@ function init() {
             return ""
         }
 
-        function refreshSchedule() {
+        function refreshSchedule(includeUpcomingEpisodes: boolean = true) {
             ctx.anime.clearScheduleCache()
             $app.invalidateClientQuery([
                 "ANIME-COLLECTION-get-anime-collection-schedule",
@@ -643,6 +628,7 @@ function init() {
                 "ANIME-ENTRIES-get-anime-entry",
                 "ANIME-ENTRIES-get-upcoming-episodes",
             ])
+            if (includeUpcomingEpisodes) $anilist.refreshAnimeCollection()
         }
 
         const tray = ctx.newTray({
@@ -930,9 +916,10 @@ function init() {
                 if (lcId) {
                     await refreshLcSchedules(lcId, false)
                     const t = Date.now()
-                    if (warmQueue.length === 0 || t - lastWarmRefreshAt > WARM_REFRESH_THROTTLE_MS) {
+                    const queueDrained = warmQueue.length === 0
+                    if (queueDrained || t - lastWarmRefreshAt > WARM_REFRESH_THROTTLE_MS) {
                         lastWarmRefreshAt = t
-                        refreshSchedule()
+                        refreshSchedule(queueDrained)
                     }
                 }
             } catch (err) {
