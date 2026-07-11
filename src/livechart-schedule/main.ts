@@ -216,6 +216,94 @@ function init() {
     $app.onGetCachedAnimeCollection(mutateAnimeCollectionEvent)
     $app.onGetCachedRawAnimeCollection(mutateAnimeCollectionEvent)
 
+    // The anime entry page's own countdown reads entry.media.nextAiringEpisode
+    // from this hook, not from the collection hooks above - it's a completely
+    // separate fetch path, so it needs its own copy of the same correction.
+    $app.onAnimeEntry((e) => {
+        const GLOBAL_MODE_KEY = "livechart.globalMode"
+        const MAPPING_KEY = "livechart.mapping"
+        const SCHEDULES_KEY = "livechart.schedules"
+        const OVERRIDE_KEY = "livechart.override"
+        const RECENT_AIR_KEY = "livechart.recentAirTimes"
+
+        function recordRecentAirTime(mediaId: number, episodeNumber: number, seconds: number) {
+            const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
+            recentAirTimes[`${mediaId}-${episodeNumber}`] = seconds
+            $storage.set(RECENT_AIR_KEY, recentAirTimes)
+        }
+
+        function getOverrides(): Record<string, string> {
+            return $storage.get<Record<string, string>>(OVERRIDE_KEY) || {}
+        }
+
+        function pickSchedule(mediaId: number, schedules: LcSchedule[]): LcSchedule | null {
+            if (!schedules.length) return null
+
+            const overrideId = getOverrides()[String(mediaId)]
+            if (overrideId) {
+                const chosen = schedules.find(s => s.databaseId === overrideId)
+                if (chosen) return chosen
+            }
+
+            const jp = schedules.find(s => s.isJapan) || null
+            const mode = $storage.get<string>(GLOBAL_MODE_KEY) || "japan"
+            if (mode === "japan") return jp || schedules[0]
+
+            const nonJp = schedules.filter(s => !s.isJapan)
+            const sub = nonJp.find(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
+            return sub || nonJp[0] || jp || schedules[0]
+        }
+
+        function resolveAirTimeSeconds(mediaId: number, episodeNumber: number, rawSeconds: number | null): number | null {
+            if (!mediaId || !episodeNumber) return null
+
+            const mappingEntry = ($storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {})[String(mediaId)]
+            const lcId = mappingEntry ? mappingEntry.id : null
+            if (!lcId) return null
+
+            const scheduleEntry = ($storage.get<Record<string, { fetchedAt: number; schedules: LcSchedule[] }>>(SCHEDULES_KEY) || {})[lcId]
+            const schedules = scheduleEntry ? scheduleEntry.schedules : null
+            if (!schedules || !schedules.length) return null
+
+            const chosen = pickSchedule(mediaId, schedules)
+            if (!chosen) return null
+
+            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber === episodeNumber) {
+                const t = new Date(chosen.nextEpisodeDate).getTime()
+                if (!isNaN(t)) return Math.floor(t / 1000)
+            }
+
+            if (!chosen.isJapan && rawSeconds != null) {
+                const jp = schedules.find(s => s.isJapan)
+                if (jp && jp.nextEpisodeDate != null && chosen.nextEpisodeDate != null && jp.nextEpisodeNumber === chosen.nextEpisodeNumber) {
+                    const jpMs = new Date(jp.nextEpisodeDate).getTime()
+                    const chosenMs = new Date(chosen.nextEpisodeDate).getTime()
+                    if (!isNaN(jpMs) && !isNaN(chosenMs)) {
+                        return rawSeconds + Math.round((chosenMs - jpMs) / 1000)
+                    }
+                }
+            }
+
+            return null
+        }
+
+        const media = e.entry && e.entry.media
+        if (media && media.nextAiringEpisode) {
+            try {
+                const nowSeconds = Math.floor(Date.now() / 1000)
+                const seconds = resolveAirTimeSeconds(media.id, media.nextAiringEpisode.episode, media.nextAiringEpisode.airingAt)
+                if (seconds != null) {
+                    media.nextAiringEpisode.airingAt = seconds
+                    media.nextAiringEpisode.timeUntilAiring = seconds - nowSeconds
+                    recordRecentAirTime(media.id, media.nextAiringEpisode.episode, seconds)
+                }
+            } catch (err) {
+                // keep this entry's original AniList-derived time
+            }
+        }
+        e.next()
+    })
+
     // Hides non-downloaded "continue watching" entries until the corrected air
     // time recorded above has actually passed, so a delayed dub/simulcast
     // doesn't show up as watchable just because AniList's own (earlier) raw
