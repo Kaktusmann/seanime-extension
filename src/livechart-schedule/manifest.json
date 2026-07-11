@@ -5,7 +5,7 @@
   "manifestURI": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/livechart-schedule/manifest.json",
   "language": "typescript",
   "type": "plugin",
-  "description": "Overrides Seanime's schedule times using LiveChart's data, with a choice between Japan broadcast and simulcast/dub schedules per anime or globally.",
+  "description": "Overrides Seanime's schedule times using LiveChart's data, with a choice between Japanese broadcast and simulcast/dub schedules per anime or globally.",
   "author": "Kaktus",
   "icon": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/livechart-schedule/icon.ico",
   "website": "",
