@@ -1,7 +1,7 @@
 {
   "id": "horizontal-scroll",
   "name": "Horizontal Scroll",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "manifestURI": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/horizontal-scroll/manifest.json",
   "language": "typescript",
   "type": "plugin",
@@ -34,6 +34,38 @@
         "label": "Require shift key to scroll (restart Seanime to apply)",
         "type": "switch",
         "default": "false"
+      },
+      {
+        "name": "speed",
+        "label": "Scroll interval delay in ms (restart Seanime to apply)",
+        "type": "select",
+        "default": "120",
+        "options": [
+          {
+            "label": "0",
+            "value": "0"
+          },
+          {
+            "label": "60",
+            "value": "60"
+          },
+          {
+            "label": "90",
+            "value": "90"
+          },
+          {
+            "label": "120",
+            "value": "120"
+          },
+          {
+            "label": "150",
+            "value": "150"
+          },
+          {
+            "label": "180",
+            "value": "180"
+          }
+        ]
       }
     ]
   },

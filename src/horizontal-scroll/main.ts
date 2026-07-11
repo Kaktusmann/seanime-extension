@@ -15,6 +15,7 @@ function init() {
                 `if ((window).__horizontalScrollPatchInstalledV2) return;` +
                 `(window).__horizontalScrollPatchInstalledV2 = true;` +
                 `const requireShift = "{{requireShift}}" === "true";` +
+                `const speed = Number("{{speed}}");` +
                 `const selector = ".UI-Carousel__root.relative.w-full.max-w-full";` +
                 `const cleanupLegacyStyle = () => {` +
                 `document.querySelector('[data-plugin-style="horizontal-scroll-style"]')?.remove();` +
@@ -51,7 +52,7 @@ function init() {
                 `if (requireShift && !event.shiftKey) return;` +
                 `if (event.ctrlKey) return;` +
                 `const now = Date.now();` +
-                `if (now - lastScroll < 120) { event.preventDefault(); return; }` +
+                `if (now - lastScroll < speed) { event.preventDefault(); return; }` +
                 `lastScroll = now;` +
                 `const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX)` +
                 `? event.deltaY` +
