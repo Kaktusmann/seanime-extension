@@ -79,8 +79,8 @@ function init() {
     function mutateAnimeCollectionEvent(e: { next(): void; animeCollection?: $app.AL_AnimeCollection }) {
         const GLOBAL_OFFSET_KEY = "scheduleOffsets.global"
         const ANIME_OFFSETS_KEY = "scheduleOffsets.anime"
-        const LAST_SEEN_KEY = "scheduleOffsets.lastSeenNextAiring"
-        const RECENT_AIR_KEY = "scheduleOffsets.recentAirTimes"
+        const LAST_SEEN_KEY = "scheduleOffsets.lastSeenNextAiring.v2"
+        const RECENT_AIR_KEY = "scheduleOffsets.recentAirTimes.v2"
 
         function parseOffset(raw: string | undefined): number {
             if (!raw) return 0
@@ -129,6 +129,8 @@ function init() {
             let lastSeenChanged = false
             let recentAirChanged = false
 
+            const nowSeconds = Math.floor(Date.now() / 1000)
+
             for (const list of lists) {
                 if (!list || !list.entries) continue
                 for (const entry of list.entries) {
@@ -136,24 +138,30 @@ function init() {
                     if (!media || !media.nextAiringEpisode) continue
 
                     const mediaIdStr = String(media.id)
-                    const rawEpisode = media.nextAiringEpisode.episode
-                    const rawAiringAt = media.nextAiringEpisode.airingAt
+                    const objEpisode = media.nextAiringEpisode.episode
+                    const objAiringAt = media.nextAiringEpisode.airingAt
 
                     const prev = lastSeen[mediaIdStr]
-                    if (prev && prev.episode < rawEpisode) {
+
+                    const rawAiringAt = prev && prev.episode === objEpisode ? prev.airingAt : objAiringAt
+
+                    if (prev && prev.episode < objEpisode) {
                         recentAirTimes[`${mediaIdStr}-${prev.episode}`] = prev.airingAt
                         recentAirChanged = true
                     }
-                    if (!prev || prev.episode !== rawEpisode || prev.airingAt !== rawAiringAt) {
-                        lastSeen[mediaIdStr] = { episode: rawEpisode, airingAt: rawAiringAt }
+                    if (!prev || prev.episode !== objEpisode || prev.airingAt !== rawAiringAt) {
+                        lastSeen[mediaIdStr] = { episode: objEpisode, airingAt: rawAiringAt }
                         lastSeenChanged = true
                     }
 
                     const minutes = getOffsetMinutesForMedia(media.id)
                     if (minutes) {
-                        const deltaSeconds = minutes * 60
-                        media.nextAiringEpisode.airingAt = rawAiringAt + deltaSeconds
-                        media.nextAiringEpisode.timeUntilAiring += deltaSeconds
+                        const shiftedAiringAt = rawAiringAt + minutes * 60
+                        media.nextAiringEpisode.airingAt = shiftedAiringAt
+                        media.nextAiringEpisode.timeUntilAiring = shiftedAiringAt - nowSeconds
+                    } else {
+                        media.nextAiringEpisode.airingAt = rawAiringAt
+                        media.nextAiringEpisode.timeUntilAiring = rawAiringAt - nowSeconds
                     }
                 }
             }
@@ -173,7 +181,7 @@ function init() {
     $app.onAnimeLibraryStreamCollection((e) => {
         const GLOBAL_OFFSET_KEY = "scheduleOffsets.global"
         const ANIME_OFFSETS_KEY = "scheduleOffsets.anime"
-        const RECENT_AIR_KEY = "scheduleOffsets.recentAirTimes"
+        const RECENT_AIR_KEY = "scheduleOffsets.recentAirTimes.v2"
 
         function parseOffset(raw: string | undefined): number {
             if (!raw) return 0
