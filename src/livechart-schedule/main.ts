@@ -445,7 +445,6 @@ function init() {
         const LC_HEADERS: Record<string, string> = {
             "Content-Type": "application/json",
             "Accept": "multipart/mixed;deferSpec=20220824, application/graphql-response+json, application/json",
-            "Accept-Encoding": "gzip",
             "Connection": "Keep-Alive",
             "User-Agent": "me.livechart.android/7.7.2 (Linux; Android 16 SDK 36; Google Pixel 8 Pro)",
         }
