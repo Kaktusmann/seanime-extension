@@ -1,0 +1,27 @@
+{
+  "id": "livechart-schedule",
+  "name": "livechart schedule",
+  "version": "0.1.0",
+  "manifestURI": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/livechart-schedule/manifest.json",
+  "language": "typescript",
+  "type": "plugin",
+  "description": "Overrides Seanime's schedule times using LiveChart's data, with a choice between Japan broadcast and simulcast/dub schedules per anime or globally.",
+  "author": "Kaktus",
+  "icon": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/livechart-schedule/icon.ico",
+  "website": "",
+  "lang": "en",
+  "payloadURI": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/livechart-schedule/main.ts",
+  "plugin": {
+    "version": "1",
+    "permissions": {
+      "scopes": ["storage", "anilist"],
+      "allow": {
+        "networkAccess": {
+          "allowedDomains": ["www.livechart.me"],
+          "reasoning": "Fetches LiveChart's weekly schedule and anime pages to correct air times/episode numbers shown in the Schedule tab."
+        }
+      }
+    }
+  },
+  "isDevelopment": false
+}
