@@ -57,7 +57,7 @@ function init() {
             return sub || nonJp[0] || jp || schedules[0]
         }
 
-        function resolveNextEpisodeInfo(mediaId: number, anilistEpisodeNumber: number, rawSeconds: number | null): { episode: number; seconds: number } | null {
+        function resolveNextEpisodeInfo(mediaId: number, anilistEpisodeNumber: number, rawSeconds: number | null, allowEarlierEpisodeOverride: boolean): { episode: number; seconds: number } | null {
             if (!mediaId || !anilistEpisodeNumber) return null
 
             const mappingEntry = ($storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {})[String(mediaId)]
@@ -71,9 +71,13 @@ function init() {
             const chosen = pickSchedule(mediaId, schedules)
             if (!chosen) return null
 
-            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber != null && chosen.nextEpisodeNumber <= anilistEpisodeNumber) {
-                const t = new Date(chosen.nextEpisodeDate).getTime()
-                if (!isNaN(t)) return { episode: chosen.nextEpisodeNumber, seconds: Math.floor(t / 1000) }
+            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber != null) {
+                const matchesExactly = chosen.nextEpisodeNumber === anilistEpisodeNumber
+                const isEarlierAndAllowed = allowEarlierEpisodeOverride && chosen.nextEpisodeNumber < anilistEpisodeNumber
+                if (matchesExactly || isEarlierAndAllowed) {
+                    const t = new Date(chosen.nextEpisodeDate).getTime()
+                    if (!isNaN(t)) return { episode: chosen.nextEpisodeNumber, seconds: Math.floor(t / 1000) }
+                }
             }
 
             if (!chosen.isJapan && rawSeconds != null) {
@@ -97,7 +101,7 @@ function init() {
                     const t = Date.parse(item.dateTime)
                     if (!isNaN(t)) rawSeconds = Math.floor(t / 1000)
                 }
-                const result = resolveNextEpisodeInfo(item.mediaId, item.episodeNumber, rawSeconds)
+                const result = resolveNextEpisodeInfo(item.mediaId, item.episodeNumber, rawSeconds, false)
                 if (result != null) {
                     const d = new Date(result.seconds * 1000)
                     item.episodeNumber = result.episode
@@ -147,7 +151,7 @@ function init() {
             return sub || nonJp[0] || jp || schedules[0]
         }
 
-        function resolveNextEpisodeInfo(mediaId: number, anilistEpisodeNumber: number, rawSeconds: number | null): { episode: number; seconds: number } | null {
+        function resolveNextEpisodeInfo(mediaId: number, anilistEpisodeNumber: number, rawSeconds: number | null, allowEarlierEpisodeOverride: boolean): { episode: number; seconds: number } | null {
             if (!mediaId || !anilistEpisodeNumber) return null
 
             const mappingEntry = ($storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {})[String(mediaId)]
@@ -161,9 +165,13 @@ function init() {
             const chosen = pickSchedule(mediaId, schedules)
             if (!chosen) return null
 
-            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber != null && chosen.nextEpisodeNumber <= anilistEpisodeNumber) {
-                const t = new Date(chosen.nextEpisodeDate).getTime()
-                if (!isNaN(t)) return { episode: chosen.nextEpisodeNumber, seconds: Math.floor(t / 1000) }
+            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber != null) {
+                const matchesExactly = chosen.nextEpisodeNumber === anilistEpisodeNumber
+                const isEarlierAndAllowed = allowEarlierEpisodeOverride && chosen.nextEpisodeNumber < anilistEpisodeNumber
+                if (matchesExactly || isEarlierAndAllowed) {
+                    const t = new Date(chosen.nextEpisodeDate).getTime()
+                    if (!isNaN(t)) return { episode: chosen.nextEpisodeNumber, seconds: Math.floor(t / 1000) }
+                }
             }
 
             if (!chosen.isJapan && rawSeconds != null) {
@@ -189,7 +197,7 @@ function init() {
                     const media = entry && entry.media
                     if (!media || !media.nextAiringEpisode) continue
                     try {
-                        const result = resolveNextEpisodeInfo(media.id, media.nextAiringEpisode.episode, media.nextAiringEpisode.airingAt)
+                        const result = resolveNextEpisodeInfo(media.id, media.nextAiringEpisode.episode, media.nextAiringEpisode.airingAt, true)
                         if (result != null) {
                             media.nextAiringEpisode.episode = result.episode
                             media.nextAiringEpisode.airingAt = result.seconds
@@ -245,7 +253,7 @@ function init() {
             return sub || nonJp[0] || jp || schedules[0]
         }
 
-        function resolveNextEpisodeInfo(mediaId: number, anilistEpisodeNumber: number, rawSeconds: number | null): { episode: number; seconds: number } | null {
+        function resolveNextEpisodeInfo(mediaId: number, anilistEpisodeNumber: number, rawSeconds: number | null, allowEarlierEpisodeOverride: boolean): { episode: number; seconds: number } | null {
             if (!mediaId || !anilistEpisodeNumber) return null
 
             const mappingEntry = ($storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {})[String(mediaId)]
@@ -259,9 +267,13 @@ function init() {
             const chosen = pickSchedule(mediaId, schedules)
             if (!chosen) return null
 
-            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber != null && chosen.nextEpisodeNumber <= anilistEpisodeNumber) {
-                const t = new Date(chosen.nextEpisodeDate).getTime()
-                if (!isNaN(t)) return { episode: chosen.nextEpisodeNumber, seconds: Math.floor(t / 1000) }
+            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber != null) {
+                const matchesExactly = chosen.nextEpisodeNumber === anilistEpisodeNumber
+                const isEarlierAndAllowed = allowEarlierEpisodeOverride && chosen.nextEpisodeNumber < anilistEpisodeNumber
+                if (matchesExactly || isEarlierAndAllowed) {
+                    const t = new Date(chosen.nextEpisodeDate).getTime()
+                    if (!isNaN(t)) return { episode: chosen.nextEpisodeNumber, seconds: Math.floor(t / 1000) }
+                }
             }
 
             if (!chosen.isJapan && rawSeconds != null) {
@@ -282,7 +294,7 @@ function init() {
         if (media && media.nextAiringEpisode) {
             try {
                 const nowSeconds = Math.floor(Date.now() / 1000)
-                const result = resolveNextEpisodeInfo(media.id, media.nextAiringEpisode.episode, media.nextAiringEpisode.airingAt)
+                const result = resolveNextEpisodeInfo(media.id, media.nextAiringEpisode.episode, media.nextAiringEpisode.airingAt, true)
                 if (result != null) {
                     media.nextAiringEpisode.episode = result.episode
                     media.nextAiringEpisode.airingAt = result.seconds
@@ -331,7 +343,7 @@ function init() {
             return sub || nonJp[0] || jp || schedules[0]
         }
 
-        function resolveNextEpisodeInfo(mediaId: number, anilistEpisodeNumber: number, rawSeconds: number | null): { episode: number; seconds: number } | null {
+        function resolveNextEpisodeInfo(mediaId: number, anilistEpisodeNumber: number, rawSeconds: number | null, allowEarlierEpisodeOverride: boolean): { episode: number; seconds: number } | null {
             if (!mediaId || !anilistEpisodeNumber) return null
 
             const mappingEntry = ($storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {})[String(mediaId)]
@@ -345,9 +357,13 @@ function init() {
             const chosen = pickSchedule(mediaId, schedules)
             if (!chosen) return null
 
-            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber != null && chosen.nextEpisodeNumber <= anilistEpisodeNumber) {
-                const t = new Date(chosen.nextEpisodeDate).getTime()
-                if (!isNaN(t)) return { episode: chosen.nextEpisodeNumber, seconds: Math.floor(t / 1000) }
+            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber != null) {
+                const matchesExactly = chosen.nextEpisodeNumber === anilistEpisodeNumber
+                const isEarlierAndAllowed = allowEarlierEpisodeOverride && chosen.nextEpisodeNumber < anilistEpisodeNumber
+                if (matchesExactly || isEarlierAndAllowed) {
+                    const t = new Date(chosen.nextEpisodeDate).getTime()
+                    if (!isNaN(t)) return { episode: chosen.nextEpisodeNumber, seconds: Math.floor(t / 1000) }
+                }
             }
 
             if (!chosen.isJapan && rawSeconds != null) {
@@ -368,7 +384,7 @@ function init() {
         for (const episode of (e.upcomingEpisodes && e.upcomingEpisodes.episodes) || []) {
             if (!episode) continue
             try {
-                const result = resolveNextEpisodeInfo(episode.mediaId, episode.episodeNumber, episode.airingAt)
+                const result = resolveNextEpisodeInfo(episode.mediaId, episode.episodeNumber, episode.airingAt, true)
                 if (result != null) {
                     // episodeMetadata (title/image/summary) was fetched for the
                     // original episode number - stale metadata under a
