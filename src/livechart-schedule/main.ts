@@ -304,6 +304,94 @@ function init() {
         e.next()
     })
 
+    // The Schedule screen's "Upcoming" widget and the Home screen's upcoming
+    // list both read from this hook's data, via a separate fetch/query path
+    // from every hook above - same correction needed, once more.
+    $app.onUpcomingEpisodes((e) => {
+        const GLOBAL_MODE_KEY = "livechart.globalMode"
+        const MAPPING_KEY = "livechart.mapping"
+        const SCHEDULES_KEY = "livechart.schedules"
+        const OVERRIDE_KEY = "livechart.override"
+        const RECENT_AIR_KEY = "livechart.recentAirTimes"
+
+        function recordRecentAirTime(mediaId: number, episodeNumber: number, seconds: number) {
+            const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
+            recentAirTimes[`${mediaId}-${episodeNumber}`] = seconds
+            $storage.set(RECENT_AIR_KEY, recentAirTimes)
+        }
+
+        function getOverrides(): Record<string, string> {
+            return $storage.get<Record<string, string>>(OVERRIDE_KEY) || {}
+        }
+
+        function pickSchedule(mediaId: number, schedules: LcSchedule[]): LcSchedule | null {
+            if (!schedules.length) return null
+
+            const overrideId = getOverrides()[String(mediaId)]
+            if (overrideId) {
+                const chosen = schedules.find(s => s.databaseId === overrideId)
+                if (chosen) return chosen
+            }
+
+            const jp = schedules.find(s => s.isJapan) || null
+            const mode = $storage.get<string>(GLOBAL_MODE_KEY) || "japan"
+            if (mode === "japan") return jp || schedules[0]
+
+            const nonJp = schedules.filter(s => !s.isJapan)
+            const sub = nonJp.find(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
+            return sub || nonJp[0] || jp || schedules[0]
+        }
+
+        function resolveAirTimeSeconds(mediaId: number, episodeNumber: number, rawSeconds: number | null): number | null {
+            if (!mediaId || !episodeNumber) return null
+
+            const mappingEntry = ($storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {})[String(mediaId)]
+            const lcId = mappingEntry ? mappingEntry.id : null
+            if (!lcId) return null
+
+            const scheduleEntry = ($storage.get<Record<string, { fetchedAt: number; schedules: LcSchedule[] }>>(SCHEDULES_KEY) || {})[lcId]
+            const schedules = scheduleEntry ? scheduleEntry.schedules : null
+            if (!schedules || !schedules.length) return null
+
+            const chosen = pickSchedule(mediaId, schedules)
+            if (!chosen) return null
+
+            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber === episodeNumber) {
+                const t = new Date(chosen.nextEpisodeDate).getTime()
+                if (!isNaN(t)) return Math.floor(t / 1000)
+            }
+
+            if (!chosen.isJapan && rawSeconds != null) {
+                const jp = schedules.find(s => s.isJapan)
+                if (jp && jp.nextEpisodeDate != null && chosen.nextEpisodeDate != null && jp.nextEpisodeNumber === chosen.nextEpisodeNumber) {
+                    const jpMs = new Date(jp.nextEpisodeDate).getTime()
+                    const chosenMs = new Date(chosen.nextEpisodeDate).getTime()
+                    if (!isNaN(jpMs) && !isNaN(chosenMs)) {
+                        return rawSeconds + Math.round((chosenMs - jpMs) / 1000)
+                    }
+                }
+            }
+
+            return null
+        }
+
+        const nowSeconds = Math.floor(Date.now() / 1000)
+        for (const episode of (e.upcomingEpisodes && e.upcomingEpisodes.episodes) || []) {
+            if (!episode) continue
+            try {
+                const seconds = resolveAirTimeSeconds(episode.mediaId, episode.episodeNumber, episode.airingAt)
+                if (seconds != null) {
+                    episode.airingAt = seconds
+                    episode.timeUntilAiring = seconds - nowSeconds
+                    recordRecentAirTime(episode.mediaId, episode.episodeNumber, seconds)
+                }
+            } catch (err) {
+                // keep this episode's original AniList-derived time
+            }
+        }
+        e.next()
+    })
+
     // Hides non-downloaded "continue watching" entries until the corrected air
     // time recorded above has actually passed, so a delayed dub/simulcast
     // doesn't show up as watchable just because AniList's own (earlier) raw
@@ -356,10 +444,10 @@ function init() {
         const LC_ENDPOINT = "https://www.livechart.me/graphql"
         const LC_HEADERS: Record<string, string> = {
             "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Origin": "https://www.livechart.me",
-            "Referer": "https://www.livechart.me/",
+            "Accept": "multipart/mixed;deferSpec=20220824, application/graphql-response+json, application/json",
+            "Accept-Encoding": "gzip",
+            "Connection": "Keep-Alive",
+            "User-Agent": "me.livechart.android/7.7.2 (Linux; Android 16 SDK 36; Google Pixel 8 Pro)",
         }
 
         const LC_SEARCH_QUERY = `query($term: String) {
@@ -550,7 +638,12 @@ function init() {
 
         function refreshSchedule() {
             ctx.anime.clearScheduleCache()
-            $app.invalidateClientQuery(["ANIME-COLLECTION-get-anime-collection-schedule", "ANIME-COLLECTION-get-library-collection"])
+            $app.invalidateClientQuery([
+                "ANIME-COLLECTION-get-anime-collection-schedule",
+                "ANIME-COLLECTION-get-library-collection",
+                "ANIME-ENTRIES-get-anime-entry",
+                "ANIME-ENTRIES-get-upcoming-episodes",
+            ])
         }
 
         const tray = ctx.newTray({
