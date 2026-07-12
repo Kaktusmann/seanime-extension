@@ -6,7 +6,7 @@
 function init() {
     $ui.register((ctx) => {
         const reloadCd = ctx.state<number>(500)
-        const mode = ctx.state<"episode" | "general">("episode")
+        const mode = "{{mode}}" as "episode" | "general"
         const currentMediaId = ctx.state<number>(0)
 
         function isCustomSource(id: number) {
@@ -30,31 +30,6 @@ function init() {
             script.setInnerHTML(`window.open(${JSON.stringify(url)}, "_blank")`)
             body.append(script)
         }
-
-        // ── Tray with settings ────────────────────────────────────────────────
-
-        const tray = ctx.newTray({
-            iconUrl: `https://styles.redditmedia.com/t5_2qh22/styles/communityIcon_3low8batpmag1.png`,
-            withContent: true,
-        })
-
-        const modeRef = ctx.fieldRef<string>("episode")
-        modeRef.onValueChange((value) => {
-            mode.set(value as "episode" | "general")
-        })
-
-        tray.render(() => {
-            return tray.stack([
-                tray.text("r/anime Discussion — Settings"),
-                tray.radioGroup("Button link mode", {
-                    options: [
-                        { label: "Episode Discussion  (search by title + episode)", value: "episode" },
-                        { label: "All Discussions  (search by AniList ID)", value: "general" },
-                    ],
-                    fieldRef: modeRef,
-                }),
-            ])
-        })
 
         // ── Episode grid context menu for all grid types ──────────────────────
         const gridTypes: Array<"library" | "torrentstream" | "debridstream" | "onlinestream" | "undownloaded" | "medialinks" | "mediastream"> =
@@ -99,7 +74,7 @@ function init() {
                 if (!entry?.media) return true
                 const media = entry.media
 
-                if (mode.get() === "general") {
+                if (mode === "general") {
                     url = buildGeneralUrl(media.id)
                 } else {
                     const title =

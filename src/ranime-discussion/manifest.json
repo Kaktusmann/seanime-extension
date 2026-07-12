@@ -1,7 +1,7 @@
 {
   "id": "ranime-discussion",
   "name": "r/anime Discussion",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "manifestURI": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/ranime-discussion/manifest.json",
   "language": "typescript",
   "type": "plugin",
@@ -24,6 +24,22 @@
         ]
       }
     }
+  },
+  "userConfig": {
+    "requiresConfig": false,
+    "version": 1,
+    "fields": [
+      {
+        "name": "mode",
+        "label": "Button link mode",
+        "type": "select",
+        "default": "episode",
+        "options": [
+          { "label": "Episode Discussion  (search by title + episode)", "value": "episode" },
+          { "label": "All Discussions  (search by AniList ID)", "value": "general" }
+        ]
+      }
+    ]
   },
   "isDevelopment": false
 }
