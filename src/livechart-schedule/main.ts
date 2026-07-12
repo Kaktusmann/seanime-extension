@@ -23,34 +23,43 @@ interface LcSchedule {
 
 function init() {
     $app.onAnimeScheduleItems((e) => {
-        const GLOBAL_MODE_KEY = "livechart.globalMode"
         const MAPPING_KEY = "livechart.mapping"
         const SCHEDULES_KEY = "livechart.schedules"
         const OVERRIDE_KEY = "livechart.override"
         const RECENT_AIR_KEY = "livechart.recentAirTimes"
+        const GLOBAL_MODE_KEY = "livechart.globalMode"
+
+        // Read every storage key exactly once per hook call, not once per
+        // item: $storage is one JSON blob per plugin (not per-key), so a
+        // get/set inside a per-item loop means a full blob read-modify-write
+        // for every single item - with a full schedule list that's dozens of
+        // redundant DB round-trips (and log lines) for what should be a
+        // handful of reads plus at most one write.
+        const mapping = $storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {}
+        const schedulesCache = $storage.get<Record<string, { fetchedAt: number; schedules: LcSchedule[] }>>(SCHEDULES_KEY) || {}
+        const overrides = $storage.get<Record<string, string>>(OVERRIDE_KEY) || {}
+        const globalMode = $storage.get<string>(GLOBAL_MODE_KEY) || "japan"
+        const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
+        let recentAirTimesChanged = false
 
         function recordRecentAirTime(mediaId: number, episodeNumber: number, seconds: number) {
-            const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
-            recentAirTimes[`${mediaId}-${episodeNumber}`] = seconds
-            $storage.set(RECENT_AIR_KEY, recentAirTimes)
-        }
-
-        function getOverrides(): Record<string, string> {
-            return $storage.get<Record<string, string>>(OVERRIDE_KEY) || {}
+            const key = `${mediaId}-${episodeNumber}`
+            if (recentAirTimes[key] === seconds) return
+            recentAirTimes[key] = seconds
+            recentAirTimesChanged = true
         }
 
         function pickSchedule(mediaId: number, schedules: LcSchedule[]): LcSchedule | null {
             if (!schedules.length) return null
 
-            const overrideId = getOverrides()[String(mediaId)]
+            const overrideId = overrides[String(mediaId)]
             if (overrideId) {
                 const chosen = schedules.find(s => s.databaseId === overrideId)
                 if (chosen) return chosen
             }
 
             const jp = schedules.find(s => s.isJapan) || null
-            const mode = $storage.get<string>(GLOBAL_MODE_KEY) || "japan"
-            if (mode === "japan") return jp || schedules[0]
+            if (globalMode === "japan") return jp || schedules[0]
 
             const nonJp = schedules.filter(s => !s.isJapan)
             const sub = nonJp.find(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
@@ -60,11 +69,11 @@ function init() {
         function resolveNextEpisodeInfo(mediaId: number, anilistEpisodeNumber: number, rawSeconds: number | null, allowEarlierEpisodeOverride: boolean): { episode: number; seconds: number } | null {
             if (!mediaId || !anilistEpisodeNumber) return null
 
-            const mappingEntry = ($storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {})[String(mediaId)]
+            const mappingEntry = mapping[String(mediaId)]
             const lcId = mappingEntry ? mappingEntry.id : null
             if (!lcId) return null
 
-            const scheduleEntry = ($storage.get<Record<string, { fetchedAt: number; schedules: LcSchedule[] }>>(SCHEDULES_KEY) || {})[lcId]
+            const scheduleEntry = schedulesCache[lcId]
             const schedules = scheduleEntry ? scheduleEntry.schedules : null
             if (!schedules || !schedules.length) return null
 
@@ -113,38 +122,45 @@ function init() {
                 // keep this item's original AniList-derived time
             }
         }
+        if (recentAirTimesChanged) $storage.set(RECENT_AIR_KEY, recentAirTimes)
         e.next()
     })
 
     function mutateAnimeCollectionEvent(e: { next(): void; animeCollection?: $app.AL_AnimeCollection }) {
-        const GLOBAL_MODE_KEY = "livechart.globalMode"
         const MAPPING_KEY = "livechart.mapping"
         const SCHEDULES_KEY = "livechart.schedules"
         const OVERRIDE_KEY = "livechart.override"
         const RECENT_AIR_KEY = "livechart.recentAirTimes"
+        const GLOBAL_MODE_KEY = "livechart.globalMode"
+
+        // See the matching comment in onAnimeScheduleItems: reads happen once
+        // per hook call rather than once per collection entry, since this can
+        // iterate the user's whole library.
+        const mapping = $storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {}
+        const schedulesCache = $storage.get<Record<string, { fetchedAt: number; schedules: LcSchedule[] }>>(SCHEDULES_KEY) || {}
+        const overrides = $storage.get<Record<string, string>>(OVERRIDE_KEY) || {}
+        const globalMode = $storage.get<string>(GLOBAL_MODE_KEY) || "japan"
+        const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
+        let recentAirTimesChanged = false
 
         function recordRecentAirTime(mediaId: number, episodeNumber: number, seconds: number) {
-            const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
-            recentAirTimes[`${mediaId}-${episodeNumber}`] = seconds
-            $storage.set(RECENT_AIR_KEY, recentAirTimes)
-        }
-
-        function getOverrides(): Record<string, string> {
-            return $storage.get<Record<string, string>>(OVERRIDE_KEY) || {}
+            const key = `${mediaId}-${episodeNumber}`
+            if (recentAirTimes[key] === seconds) return
+            recentAirTimes[key] = seconds
+            recentAirTimesChanged = true
         }
 
         function pickSchedule(mediaId: number, schedules: LcSchedule[]): LcSchedule | null {
             if (!schedules.length) return null
 
-            const overrideId = getOverrides()[String(mediaId)]
+            const overrideId = overrides[String(mediaId)]
             if (overrideId) {
                 const chosen = schedules.find(s => s.databaseId === overrideId)
                 if (chosen) return chosen
             }
 
             const jp = schedules.find(s => s.isJapan) || null
-            const mode = $storage.get<string>(GLOBAL_MODE_KEY) || "japan"
-            if (mode === "japan") return jp || schedules[0]
+            if (globalMode === "japan") return jp || schedules[0]
 
             const nonJp = schedules.filter(s => !s.isJapan)
             const sub = nonJp.find(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
@@ -154,11 +170,11 @@ function init() {
         function resolveNextEpisodeInfo(mediaId: number, anilistEpisodeNumber: number, rawSeconds: number | null, allowEarlierEpisodeOverride: boolean): { episode: number; seconds: number } | null {
             if (!mediaId || !anilistEpisodeNumber) return null
 
-            const mappingEntry = ($storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {})[String(mediaId)]
+            const mappingEntry = mapping[String(mediaId)]
             const lcId = mappingEntry ? mappingEntry.id : null
             if (!lcId) return null
 
-            const scheduleEntry = ($storage.get<Record<string, { fetchedAt: number; schedules: LcSchedule[] }>>(SCHEDULES_KEY) || {})[lcId]
+            const scheduleEntry = schedulesCache[lcId]
             const schedules = scheduleEntry ? scheduleEntry.schedules : null
             if (!schedules || !schedules.length) return null
 
@@ -210,6 +226,7 @@ function init() {
                 }
             }
         }
+        if (recentAirTimesChanged) $storage.set(RECENT_AIR_KEY, recentAirTimes)
         e.next()
     }
 
@@ -219,34 +236,36 @@ function init() {
     $app.onGetCachedRawAnimeCollection(mutateAnimeCollectionEvent)
 
     $app.onAnimeEntry((e) => {
-        const GLOBAL_MODE_KEY = "livechart.globalMode"
         const MAPPING_KEY = "livechart.mapping"
         const SCHEDULES_KEY = "livechart.schedules"
         const OVERRIDE_KEY = "livechart.override"
         const RECENT_AIR_KEY = "livechart.recentAirTimes"
+        const GLOBAL_MODE_KEY = "livechart.globalMode"
+
+        const mapping = $storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {}
+        const schedulesCache = $storage.get<Record<string, { fetchedAt: number; schedules: LcSchedule[] }>>(SCHEDULES_KEY) || {}
+        const overrides = $storage.get<Record<string, string>>(OVERRIDE_KEY) || {}
+        const globalMode = $storage.get<string>(GLOBAL_MODE_KEY) || "japan"
 
         function recordRecentAirTime(mediaId: number, episodeNumber: number, seconds: number) {
             const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
-            recentAirTimes[`${mediaId}-${episodeNumber}`] = seconds
+            const key = `${mediaId}-${episodeNumber}`
+            if (recentAirTimes[key] === seconds) return
+            recentAirTimes[key] = seconds
             $storage.set(RECENT_AIR_KEY, recentAirTimes)
-        }
-
-        function getOverrides(): Record<string, string> {
-            return $storage.get<Record<string, string>>(OVERRIDE_KEY) || {}
         }
 
         function pickSchedule(mediaId: number, schedules: LcSchedule[]): LcSchedule | null {
             if (!schedules.length) return null
 
-            const overrideId = getOverrides()[String(mediaId)]
+            const overrideId = overrides[String(mediaId)]
             if (overrideId) {
                 const chosen = schedules.find(s => s.databaseId === overrideId)
                 if (chosen) return chosen
             }
 
             const jp = schedules.find(s => s.isJapan) || null
-            const mode = $storage.get<string>(GLOBAL_MODE_KEY) || "japan"
-            if (mode === "japan") return jp || schedules[0]
+            if (globalMode === "japan") return jp || schedules[0]
 
             const nonJp = schedules.filter(s => !s.isJapan)
             const sub = nonJp.find(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
@@ -256,11 +275,11 @@ function init() {
         function resolveNextEpisodeInfo(mediaId: number, anilistEpisodeNumber: number, rawSeconds: number | null, allowEarlierEpisodeOverride: boolean): { episode: number; seconds: number } | null {
             if (!mediaId || !anilistEpisodeNumber) return null
 
-            const mappingEntry = ($storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {})[String(mediaId)]
+            const mappingEntry = mapping[String(mediaId)]
             const lcId = mappingEntry ? mappingEntry.id : null
             if (!lcId) return null
 
-            const scheduleEntry = ($storage.get<Record<string, { fetchedAt: number; schedules: LcSchedule[] }>>(SCHEDULES_KEY) || {})[lcId]
+            const scheduleEntry = schedulesCache[lcId]
             const schedules = scheduleEntry ? scheduleEntry.schedules : null
             if (!schedules || !schedules.length) return null
 
@@ -309,34 +328,37 @@ function init() {
     })
 
     $app.onUpcomingEpisodes((e) => {
-        const GLOBAL_MODE_KEY = "livechart.globalMode"
         const MAPPING_KEY = "livechart.mapping"
         const SCHEDULES_KEY = "livechart.schedules"
         const OVERRIDE_KEY = "livechart.override"
         const RECENT_AIR_KEY = "livechart.recentAirTimes"
+        const GLOBAL_MODE_KEY = "livechart.globalMode"
+
+        const mapping = $storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {}
+        const schedulesCache = $storage.get<Record<string, { fetchedAt: number; schedules: LcSchedule[] }>>(SCHEDULES_KEY) || {}
+        const overrides = $storage.get<Record<string, string>>(OVERRIDE_KEY) || {}
+        const globalMode = $storage.get<string>(GLOBAL_MODE_KEY) || "japan"
+        const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
+        let recentAirTimesChanged = false
 
         function recordRecentAirTime(mediaId: number, episodeNumber: number, seconds: number) {
-            const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
-            recentAirTimes[`${mediaId}-${episodeNumber}`] = seconds
-            $storage.set(RECENT_AIR_KEY, recentAirTimes)
-        }
-
-        function getOverrides(): Record<string, string> {
-            return $storage.get<Record<string, string>>(OVERRIDE_KEY) || {}
+            const key = `${mediaId}-${episodeNumber}`
+            if (recentAirTimes[key] === seconds) return
+            recentAirTimes[key] = seconds
+            recentAirTimesChanged = true
         }
 
         function pickSchedule(mediaId: number, schedules: LcSchedule[]): LcSchedule | null {
             if (!schedules.length) return null
 
-            const overrideId = getOverrides()[String(mediaId)]
+            const overrideId = overrides[String(mediaId)]
             if (overrideId) {
                 const chosen = schedules.find(s => s.databaseId === overrideId)
                 if (chosen) return chosen
             }
 
             const jp = schedules.find(s => s.isJapan) || null
-            const mode = $storage.get<string>(GLOBAL_MODE_KEY) || "japan"
-            if (mode === "japan") return jp || schedules[0]
+            if (globalMode === "japan") return jp || schedules[0]
 
             const nonJp = schedules.filter(s => !s.isJapan)
             const sub = nonJp.find(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
@@ -346,11 +368,11 @@ function init() {
         function resolveNextEpisodeInfo(mediaId: number, anilistEpisodeNumber: number, rawSeconds: number | null, allowEarlierEpisodeOverride: boolean): { episode: number; seconds: number } | null {
             if (!mediaId || !anilistEpisodeNumber) return null
 
-            const mappingEntry = ($storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {})[String(mediaId)]
+            const mappingEntry = mapping[String(mediaId)]
             const lcId = mappingEntry ? mappingEntry.id : null
             if (!lcId) return null
 
-            const scheduleEntry = ($storage.get<Record<string, { fetchedAt: number; schedules: LcSchedule[] }>>(SCHEDULES_KEY) || {})[lcId]
+            const scheduleEntry = schedulesCache[lcId]
             const schedules = scheduleEntry ? scheduleEntry.schedules : null
             if (!schedules || !schedules.length) return null
 
@@ -399,6 +421,7 @@ function init() {
                 // keep this episode's original AniList-derived time
             }
         }
+        if (recentAirTimesChanged) $storage.set(RECENT_AIR_KEY, recentAirTimes)
         e.next()
     })
 
