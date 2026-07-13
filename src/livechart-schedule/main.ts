@@ -565,10 +565,22 @@ function init() {
             if (s.isJapan) return "Japan Broadcast"
             const parts: string[] = []
             if (s.networkName) parts.push(s.networkName)
-            parts.push(s.shortTitle || s.title)
-            const dubTracks = s.tracks.filter(t => t.category === "AURAL" && t.languageCode !== "ja")
-            if (dubTracks.length === 1) parts.push(`(${dubTracks[0].languageCode.toUpperCase()})`)
-            return parts.join(" — ")
+            parts.push(s.title || s.shortTitle || "Schedule")
+
+            // Prefer the dub language(s) when present (that's the track that
+            // actually matters for a dub schedule); otherwise fall back to the
+            // subtitle languages, since those can also disambiguate schedules
+            // that share the same network/title but serve different regions.
+            const dubLangs = s.tracks.filter(t => t.category === "AURAL" && t.languageCode !== "ja").map(t => t.languageCode.toUpperCase())
+            const subLangs = s.tracks.filter(t => t.category === "TEXTUAL").map(t => t.languageCode.toUpperCase())
+            const langs = dubLangs.length ? dubLangs : subLangs
+            if (langs.length === 1) {
+                parts.push(`(${langs[0]})`)
+            } else if (langs.length > 1) {
+                parts.push(langs.length <= 3 ? `(${langs.join("/")})` : `(${langs.length} languages)`)
+            }
+
+            return parts.join(" - ")
         }
 
         function formatDateUTC(d: Date): string {
