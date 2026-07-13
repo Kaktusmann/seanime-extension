@@ -565,22 +565,25 @@ function init() {
             if (s.isJapan) return "Japan Broadcast"
             const parts: string[] = []
             if (s.networkName) parts.push(s.networkName)
-            parts.push(s.title || s.shortTitle || "Schedule")
 
-            // Prefer the dub language(s) when present (that's the track that
-            // actually matters for a dub schedule); otherwise fall back to the
-            // subtitle languages, since those can also disambiguate schedules
-            // that share the same network/title but serve different regions.
-            const dubLangs = s.tracks.filter(t => t.category === "AURAL" && t.languageCode !== "ja").map(t => t.languageCode.toUpperCase())
-            const subLangs = s.tracks.filter(t => t.category === "TEXTUAL").map(t => t.languageCode.toUpperCase())
-            const langs = dubLangs.length ? dubLangs : subLangs
-            if (langs.length === 1) {
-                parts.push(`(${langs[0]})`)
-            } else if (langs.length > 1) {
-                parts.push(langs.length <= 3 ? `(${langs.join("/")})` : `(${langs.length} languages)`)
-            }
+            // shortTitle stays compact ("Sub"/"Dub"), but the full title
+            // sometimes carries a parenthetical qualifier shortTitle drops
+            // entirely (e.g. "Simulcast (India): Subbed" vs "Sub") - keep
+            // just that qualifier so a network's regional variant stays
+            // distinguishable from its regular one without pulling in the
+            // whole verbose title.
+            let base = s.shortTitle || s.title || "Schedule"
+            const qualifier = /\(([^)]+)\)/.exec(s.title)
+            if (qualifier && !base.includes(qualifier[1])) base += ` (${qualifier[1]})`
+            parts.push(base)
 
-            return parts.join(" - ")
+            // Only the dub language is worth showing inline - a sub schedule
+            // usually bundles many subtitle languages, and listing those is
+            // what made these labels too long for the dropdown.
+            const dubTracks = s.tracks.filter(t => t.category === "AURAL" && t.languageCode !== "ja")
+            if (dubTracks.length === 1) parts.push(`(${dubTracks[0].languageCode.toUpperCase()})`)
+
+            return parts.join(" — ")
         }
 
         function formatDateUTC(d: Date): string {
