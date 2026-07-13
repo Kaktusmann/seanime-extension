@@ -28,13 +28,6 @@ function init() {
         const OVERRIDE_KEY = "livechart.override"
         const RECENT_AIR_KEY = "livechart.recentAirTimes"
         const GLOBAL_MODE_KEY = "livechart.globalMode"
-
-        // Read every storage key exactly once per hook call, not once per
-        // item: $storage is one JSON blob per plugin (not per-key), so a
-        // get/set inside a per-item loop means a full blob read-modify-write
-        // for every single item - with a full schedule list that's dozens of
-        // redundant DB round-trips (and log lines) for what should be a
-        // handful of reads plus at most one write.
         const mapping = $storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {}
         const schedulesCache = $storage.get<Record<string, { fetchedAt: number; schedules: LcSchedule[] }>>(SCHEDULES_KEY) || {}
         const overrides = $storage.get<Record<string, string>>(OVERRIDE_KEY) || {}
@@ -66,60 +59,56 @@ function init() {
             return sub || nonJp[0] || jp || schedules[0]
         }
 
-        function resolveNextEpisodeInfo(mediaId: number, anilistEpisodeNumber: number, rawSeconds: number | null, allowEarlierEpisodeOverride: boolean): { episode: number; seconds: number } | null {
-            if (!mediaId || !anilistEpisodeNumber) return null
-
-            const mappingEntry = mapping[String(mediaId)]
-            const lcId = mappingEntry ? mappingEntry.id : null
-            if (!lcId) return null
-
-            const scheduleEntry = schedulesCache[lcId]
-            const schedules = scheduleEntry ? scheduleEntry.schedules : null
-            if (!schedules || !schedules.length) return null
-
-            const chosen = pickSchedule(mediaId, schedules)
-            if (!chosen) return null
-
-            if (chosen.nextEpisodeDate != null && chosen.nextEpisodeNumber != null) {
-                const matchesExactly = chosen.nextEpisodeNumber === anilistEpisodeNumber
-                const isEarlierAndAllowed = allowEarlierEpisodeOverride && chosen.nextEpisodeNumber < anilistEpisodeNumber
-                if (matchesExactly || isEarlierAndAllowed) {
-                    const t = new Date(chosen.nextEpisodeDate).getTime()
-                    if (!isNaN(t)) return { episode: chosen.nextEpisodeNumber, seconds: Math.floor(t / 1000) }
-                }
-            }
-
-            if (!chosen.isJapan && rawSeconds != null) {
-                const jp = schedules.find(s => s.isJapan)
-                if (jp && jp.nextEpisodeDate != null && chosen.nextEpisodeDate != null && jp.nextEpisodeNumber === chosen.nextEpisodeNumber) {
-                    const jpMs = new Date(jp.nextEpisodeDate).getTime()
-                    const chosenMs = new Date(chosen.nextEpisodeDate).getTime()
-                    if (!isNaN(jpMs) && !isNaN(chosenMs)) {
-                        return { episode: anilistEpisodeNumber, seconds: rawSeconds + Math.round((chosenMs - jpMs) / 1000) }
-                    }
-                }
-            }
-
-            return null
+        const itemsByMedia: Record<string, $app.Anime_ScheduleItem[]> = {}
+        for (const item of e.items || []) {
+            const key = String(item.mediaId)
+            if (!itemsByMedia[key]) itemsByMedia[key] = []
+            itemsByMedia[key].push(item)
         }
 
-        for (const item of e.items || []) {
+        for (const key of Object.keys(itemsByMedia)) {
             try {
-                let rawSeconds: number | null = null
-                if (item.dateTime) {
-                    const t = Date.parse(item.dateTime)
-                    if (!isNaN(t)) rawSeconds = Math.floor(t / 1000)
+                const mediaId = Number(key)
+                const items = itemsByMedia[key]
+
+                const mappingEntry = mapping[key]
+                const lcId = mappingEntry ? mappingEntry.id : null
+                if (!lcId) continue
+
+                const scheduleEntry = schedulesCache[lcId]
+                const schedules = scheduleEntry ? scheduleEntry.schedules : null
+                if (!schedules || !schedules.length) continue
+
+                const chosen = pickSchedule(mediaId, schedules)
+                if (!chosen || chosen.nextEpisodeDate == null || chosen.nextEpisodeNumber == null) continue
+                const chosenMs = new Date(chosen.nextEpisodeDate).getTime()
+                if (isNaN(chosenMs)) continue
+                const chosenSeconds = Math.floor(chosenMs / 1000)
+
+                // Anchor: the row AniList itself thinks is that same episode
+                // number - used to measure how far off AniList's prediction
+                // currently is, so that offset can be reapplied everywhere.
+                let anchorRaw: number | null = null
+                for (const it of items) {
+                    if (it.episodeNumber !== chosen.nextEpisodeNumber || !it.dateTime) continue
+                    const t = Date.parse(it.dateTime)
+                    if (!isNaN(t)) { anchorRaw = Math.floor(t / 1000); break }
                 }
-                const result = resolveNextEpisodeInfo(item.mediaId, item.episodeNumber, rawSeconds, false)
-                if (result != null) {
-                    const d = new Date(result.seconds * 1000)
-                    item.episodeNumber = result.episode
-                    item.dateTime = d.toISOString()
-                    item.time = `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`
-                    recordRecentAirTime(item.mediaId, result.episode, result.seconds)
+                if (anchorRaw == null) continue
+                const offsetSeconds = chosenSeconds - anchorRaw
+
+                for (const it of items) {
+                    if (!it.dateTime) continue
+                    const t = Date.parse(it.dateTime)
+                    if (isNaN(t)) continue
+                    const newSeconds = Math.floor(t / 1000) + offsetSeconds
+                    const d = new Date(newSeconds * 1000)
+                    it.dateTime = d.toISOString()
+                    it.time = `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`
+                    recordRecentAirTime(mediaId, it.episodeNumber, newSeconds)
                 }
             } catch (err) {
-                // keep this item's original AniList-derived time
+                // keep this anime's rows at their original AniList-derived times
             }
         }
         if (recentAirTimesChanged) $storage.set(RECENT_AIR_KEY, recentAirTimes)
@@ -456,6 +445,7 @@ function init() {
         const MAPPING_KEY = "livechart.mapping"
         const SCHEDULES_KEY = "livechart.schedules"
         const OVERRIDE_KEY = "livechart.override"
+        const OVERRIDE_TITLES_KEY = "livechart.overrideTitles"
         const RECENT_AIR_KEY = "livechart.recentAirTimes"
         const SUPPRESS_CONTINUE_WATCHING_KEY = "livechart.suppressContinueWatching"
 
@@ -500,12 +490,21 @@ function init() {
             }
         }`
 
-        function readMapping(): Record<string, { id: string | null; checkedAt: number }> {
-            return $storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {}
+        function readMapping(): Record<string, { id: string | null; checkedAt: number; manual?: boolean }> {
+            return $storage.get<Record<string, { id: string | null; checkedAt: number; manual?: boolean }>>(MAPPING_KEY) || {}
         }
 
-        function writeMapping(m: Record<string, { id: string | null; checkedAt: number }>) {
+        function writeMapping(m: Record<string, { id: string | null; checkedAt: number; manual?: boolean }>) {
             $storage.set(MAPPING_KEY, m)
+        }
+
+        // A manually-pinned mapping (set via the LiveChart ID override in the
+        // tray) is remembered indefinitely and never touched by auto-search,
+        // for anime whose title search picks the wrong result or finds none.
+        function setManualMapping(mediaId: number, lcId: string) {
+            const mapping = readMapping()
+            mapping[String(mediaId)] = { id: lcId, checkedAt: Date.now(), manual: true }
+            writeMapping(mapping)
         }
 
         function readSchedulesCache(): Record<string, { fetchedAt: number; schedules: LcSchedule[] }> {
@@ -518,6 +517,25 @@ function init() {
 
         function getOverrides(): Record<string, string> {
             return $storage.get<Record<string, string>>(OVERRIDE_KEY) || {}
+        }
+
+        function getOverrideTitles(): Record<string, string> {
+            return $storage.get<Record<string, string>>(OVERRIDE_TITLES_KEY) || {}
+        }
+
+        function setOverrideTitle(mediaId: number, title: string) {
+            if (!title) return
+            const titles = getOverrideTitles()
+            if (titles[String(mediaId)] === title) return
+            titles[String(mediaId)] = title
+            $storage.set(OVERRIDE_TITLES_KEY, titles)
+        }
+
+        function removeOverrideTitle(mediaId: number) {
+            const titles = getOverrideTitles()
+            if (titles[String(mediaId)] == null) return
+            delete titles[String(mediaId)]
+            $storage.set(OVERRIDE_TITLES_KEY, titles)
         }
 
         function extractAnilistId(url: string): number | null {
@@ -620,6 +638,10 @@ function init() {
             const key = String(mediaId)
             const cached = mapping[key]
             const now = Date.now()
+            // A manual mapping is pinned indefinitely - never re-searched,
+            // even on a forced refresh (use the LiveChart ID override to
+            // change or "Clear cached matches" to remove it).
+            if (cached && cached.manual) return cached.id
             if (!forceRefresh && cached) {
                 const ttl = cached.id ? MAPPING_TTL_HIT : MAPPING_TTL_MISS
                 if (now - cached.checkedAt < ttl) return cached.id
@@ -699,22 +721,89 @@ function init() {
         const loading = ctx.state<boolean>(false)
         const warmProgress = ctx.state<{ done: number; total: number }>({ done: 0, total: 0 })
         const warmError = ctx.state<string>("")
+        // The AniList media ID of whichever anime the tray is currently
+        // configuring - set by navigating to that anime's page, since a
+        // wrong AniList ID isn't something you'd rationally want to type in.
+        const activeMediaId = ctx.state<number>(0)
+        const overridesModalOpen = ctx.state<boolean>(false)
 
         const globalModeRef = ctx.fieldRef<string>($storage.get<string>(GLOBAL_MODE_KEY) || "japan")
+        // Optional LiveChart ID override for the active anime - blank means
+        // "use auto-detection".
         const mediaIdRef = ctx.fieldRef<string>("")
         const overrideRef = ctx.fieldRef<string>(DEFAULT_OVERRIDE_VALUE)
         const suppressContinueWatchingRef = ctx.fieldRef<boolean>($storage.get<boolean>(SUPPRESS_CONTINUE_WATCHING_KEY) !== false)
 
-        function getEnteredMediaId(): number | null {
-            const idStr = (mediaIdRef.current || "").trim()
-            const id = parseInt(idStr, 10)
-            if (!idStr || isNaN(id)) return null
-            return id
-        }
-
         function updateEffectiveInfo(mediaId: number, schedules: LcSchedule[]) {
             const chosen = pickSchedule(mediaId, schedules)
             effectiveInfo.set(chosen ? `${scheduleLabel(chosen)} · ${scheduleStatusText(chosen)}` : "No data available")
+        }
+
+        function getOverrideEntries(): { mediaId: number; title: string }[] {
+            const overrides = getOverrides()
+            const mapping = readMapping()
+            const titles = getOverrideTitles()
+            const idSet: Record<string, true> = {}
+            Object.keys(overrides).forEach(k => { if (overrides[k]) idSet[k] = true })
+            Object.keys(mapping).forEach(k => { if (mapping[k] && mapping[k].manual === true) idSet[k] = true })
+
+            const entries: { mediaId: number; title: string }[] = []
+            Object.keys(idSet).forEach(key => {
+                entries.push({ mediaId: Number(key), title: titles[key] || key })
+            })
+            entries.sort((a, b) => a.title < b.title ? -1 : a.title > b.title ? 1 : 0)
+            return entries
+        }
+
+        function clearOverrideData(mediaId: number): boolean {
+            const overrides = getOverrides()
+            const mapping = readMapping()
+            let changed = false
+            if (overrides[String(mediaId)] != null) {
+                delete overrides[String(mediaId)]
+                $storage.set(OVERRIDE_KEY, overrides)
+                changed = true
+            }
+            if (mapping[String(mediaId)] && mapping[String(mediaId)].manual) {
+                delete mapping[String(mediaId)]
+                writeMapping(mapping)
+                changed = true
+            }
+            if (changed) removeOverrideTitle(mediaId)
+            return changed
+        }
+
+        function resetActiveFieldsIfCleared(mediaId: number) {
+            if (activeMediaId.get() !== mediaId) return
+            const stillHasOverride = getOverrides()[String(mediaId)] != null
+            const mapping = readMapping()[String(mediaId)]
+            if (stillHasOverride || (mapping && mapping.manual)) return
+            overrideRef.setValue(DEFAULT_OVERRIDE_VALUE)
+            mediaIdRef.setValue("")
+            updateEffectiveInfo(mediaId, currentSchedules.get())
+        }
+
+        function removeOverride(mediaId: number) {
+            if (!clearOverrideData(mediaId)) return
+            refreshSchedule()
+            resetActiveFieldsIfCleared(mediaId)
+            ctx.toast.success("Override removed")
+        }
+
+        async function applySchedules(mediaId: number, lcId: string, forceRefresh: boolean) {
+            const schedules = await refreshLcSchedules(lcId, forceRefresh)
+            if (!schedules.length) {
+                scheduleOptions.set([])
+                currentSchedules.set([])
+                effectiveInfo.set("")
+                loadError.set("LiveChart has no release schedules for this anime")
+                return
+            }
+            currentSchedules.set(schedules)
+            scheduleOptions.set(schedules.map(s => ({ label: scheduleLabel(s), value: s.databaseId })))
+            overrideRef.setValue(getOverrides()[String(mediaId)] || DEFAULT_OVERRIDE_VALUE)
+            updateEffectiveInfo(mediaId, schedules)
+            refreshSchedule()
         }
 
         async function loadAnimeSchedules(mediaId: number, forceRefresh: boolean) {
@@ -729,19 +818,25 @@ function init() {
                     loadError.set("No LiveChart entry found for this anime")
                     return
                 }
-                const schedules = await refreshLcSchedules(lcId, forceRefresh)
-                if (!schedules.length) {
-                    scheduleOptions.set([])
-                    currentSchedules.set([])
-                    effectiveInfo.set("")
-                    loadError.set("LiveChart has no release schedules for this anime")
-                    return
-                }
-                currentSchedules.set(schedules)
-                scheduleOptions.set(schedules.map(s => ({ label: scheduleLabel(s), value: s.databaseId })))
-                overrideRef.setValue(getOverrides()[String(mediaId)] || DEFAULT_OVERRIDE_VALUE)
-                updateEffectiveInfo(mediaId, schedules)
-                refreshSchedule()
+                await applySchedules(mediaId, lcId, forceRefresh)
+            } catch (err: any) {
+                scheduleOptions.set([])
+                currentSchedules.set([])
+                effectiveInfo.set("")
+                loadError.set("Failed to load LiveChart data: " + (err && err.message ? err.message : String(err)))
+            } finally {
+                loading.set(false)
+            }
+        }
+
+
+        async function loadAnimeSchedulesForLcId(mediaId: number, lcId: string, forceRefresh: boolean) {
+            loadError.set("")
+            loading.set(true)
+            try {
+                setManualMapping(mediaId, lcId)
+                setOverrideTitle(mediaId, currentMediaTitle.get())
+                await applySchedules(mediaId, lcId, forceRefresh)
             } catch (err: any) {
                 scheduleOptions.set([])
                 currentSchedules.set([])
@@ -755,7 +850,12 @@ function init() {
         function loadMediaIntoForm(id: number, title: string) {
             currentMediaTitle.set(title)
             if (id) {
-                mediaIdRef.setValue(String(id))
+                activeMediaId.set(id)
+                const entry = readMapping()[String(id)]
+                mediaIdRef.setValue(entry && entry.manual && entry.id ? entry.id : "")
+                if (title && (getOverrides()[String(id)] || (entry && entry.manual))) {
+                    setOverrideTitle(id, title)
+                }
                 loadAnimeSchedules(id, false)
             }
         }
@@ -763,7 +863,7 @@ function init() {
         globalModeRef.onValueChange((v) => {
             $storage.set(GLOBAL_MODE_KEY, v)
             refreshSchedule()
-            const id = getEnteredMediaId()
+            const id = activeMediaId.get()
             if (id) updateEffectiveInfo(id, currentSchedules.get())
             ctx.toast.success(`Global schedule preference set to ${v === "japan" ? "Japan Broadcast" : "Simulcast"}`)
         })
@@ -775,34 +875,46 @@ function init() {
         })
 
         overrideRef.onValueChange((v) => {
-            const id = getEnteredMediaId()
+            const id = activeMediaId.get()
             if (!id) {
-                ctx.toast.error("Enter a valid media ID, or open the anime's page to autofill it.")
+                ctx.toast.error("Open the anime's page first to pick which anime this applies to.")
                 return
             }
+            if (!v) overrideRef.setValue(DEFAULT_OVERRIDE_VALUE)
             const isDefault = !v || v === DEFAULT_OVERRIDE_VALUE
             const overrides = getOverrides()
             if (isDefault) delete overrides[String(id)]
             else overrides[String(id)] = v
             $storage.set(OVERRIDE_KEY, overrides)
+            if (!isDefault) setOverrideTitle(id, currentMediaTitle.get())
             refreshSchedule()
             updateEffectiveInfo(id, currentSchedules.get())
             ctx.toast.success(isDefault ? "Reverted to global default" : "Schedule override saved")
         })
 
         ctx.registerEventHandler("load-lc-for-id", () => {
-            const id = getEnteredMediaId()
+            const id = activeMediaId.get()
             if (!id) {
-                ctx.toast.error("Enter a valid media ID, or open the anime's page to autofill it.")
+                ctx.toast.error("Open the anime's page first to pick which anime this applies to.")
                 return
             }
-            loadAnimeSchedules(id, false)
+            const lcId = (mediaIdRef.current || "").trim()
+            if (lcId) {
+                loadAnimeSchedulesForLcId(id, lcId, false)
+            } else {
+                const mapping = readMapping()
+                if (mapping[String(id)]) {
+                    delete mapping[String(id)]
+                    writeMapping(mapping)
+                }
+                loadAnimeSchedules(id, false)
+            }
         })
 
         ctx.registerEventHandler("refresh-lc-lookup", () => {
-            const id = getEnteredMediaId()
+            const id = activeMediaId.get()
             if (!id) {
-                ctx.toast.error("Enter a valid media ID, or open the anime's page to autofill it.")
+                ctx.toast.error("Open the anime's page first to pick which anime this applies to.")
                 return
             }
             loadAnimeSchedules(id, true)
@@ -814,8 +926,31 @@ function init() {
             $storage.remove(RECENT_AIR_KEY)
             refreshSchedule()
             ctx.toast.success("Cleared LiveChart cache")
-            const id = getEnteredMediaId()
+            const id = activeMediaId.get()
             if (id) loadAnimeSchedules(id, true)
+        })
+
+        ctx.registerEventHandler("cleanup-stale-overrides", () => {
+            const entries = getOverrideEntries()
+            let removed = 0
+            for (const entry of entries) {
+                let stillAiring = false
+                try {
+                    const anime = $anilist.getAnime(entry.mediaId)
+                    // anime.status crosses the Go/JS boundary as a wrapped value, not a
+                    // plain string primitive, so a strict === against a literal never matches.
+                    stillAiring = !!anime && String(anime.status || "") === "RELEASING"
+                } catch (err) {
+                }
+                if (stillAiring) continue
+                if (clearOverrideData(entry.mediaId)) removed++
+            }
+
+            if (removed > 0) {
+                refreshSchedule()
+                if (activeMediaId.get()) resetActiveFieldsIfCleared(activeMediaId.get())
+            }
+            ctx.toast.success(removed > 0 ? `Removed ${removed} override(s) for shows no longer airing` : "No stale overrides found")
         })
 
         ctx.screen.loadCurrent()
@@ -829,6 +964,8 @@ function init() {
                 }
                 loadMediaIntoForm(id, title)
             } else {
+                activeMediaId.set(0)
+                mediaIdRef.setValue("")
                 currentMediaTitle.set("")
                 currentSchedules.set([])
                 scheduleOptions.set([])
@@ -859,6 +996,39 @@ function init() {
                     side: "left",
                     fieldRef: suppressContinueWatchingRef,
                 }),
+                tray.modal({
+                    trigger: tray.button({ label: "Manage overrides", size: "xs", intent: "gray-subtle" }),
+                    title: "Per-anime overrides",
+                    open: overridesModalOpen.get(),
+                    onOpenChange: ctx.eventHandler("overrides-modal-open-change", (e: any) => overridesModalOpen.set(!!e.open)),
+                    items: (() => {
+                        const entries = getOverrideEntries()
+                        if (!entries.length) {
+                            return [tray.text("No overrides saved", { style: { fontSize: "12px", opacity: "0.7" } })]
+                        }
+                        return [
+                            tray.flex({
+                                style: { justifyContent: "space-between", alignItems: "center" },
+                                items: [
+                                    tray.text(`${entries.length} override(s)`, { style: { fontSize: "12px", opacity: "0.7" } }),
+                                    tray.button({ label: "Remove finished shows", size: "xs", intent: "gray-subtle", onClick: "cleanup-stale-overrides" }),
+                                ],
+                            }),
+                            ...entries.map(entry => tray.flex({
+                                gap: 2,
+                                items: [
+                                    tray.text(entry.title, { style: { fontSize: "12px", flex: "1" } }),
+                                    tray.button({
+                                        label: "Remove",
+                                        size: "xs",
+                                        intent: "alert-subtle",
+                                        onClick: ctx.eventHandler(`remove-override-${entry.mediaId}`, () => removeOverride(entry.mediaId)),
+                                    }),
+                                ],
+                            })),
+                        ]
+                    })(),
+                }),
             ]
 
             const progress = warmProgress.get()
@@ -873,43 +1043,47 @@ function init() {
                 items.push(tray.text(wErr, { style: { fontSize: "11px", opacity: "0.7" } }))
             }
 
-            items.push(
-                tray.text("Per-anime override", { style: { fontWeight: "600", marginTop: "8px" } }),
-                tray.text(
-                    currentMediaTitle.get() ? `Viewing: ${currentMediaTitle.get()}` : "Open an anime page to autofill its media ID",
-                    { style: { fontSize: "12px", opacity: "0.7" } },
-                ),
-                tray.input({ placeholder: "Media ID", fieldRef: mediaIdRef }),
-            )
-
-            const err = loadError.get()
-            const options = scheduleOptions.get()
-            if (loading.get()) {
-                items.push(tray.text("Loading LiveChart schedules…", { style: { fontSize: "12px", opacity: "0.7" } }))
-            } else if (err) {
-                items.push(tray.text(err, { style: { fontSize: "12px", opacity: "0.7" } }))
-            } else if (!options.length) {
-                items.push(tray.text("Enter a media ID and press Load to fetch its schedules", { style: { fontSize: "12px", opacity: "0.7" } }))
+            if (!activeMediaId.get()) {
+                items.push(tray.text(
+                    "Open an anime page to configure a per-anime override",
+                    { style: { fontSize: "12px", opacity: "0.7", marginTop: "8px" } },
+                ))
             } else {
-                items.push(tray.select({
-                    label: "",
-                    placeholder: "Use global default",
-                    options: [{ label: "Use global default", value: DEFAULT_OVERRIDE_VALUE }, ...options],
-                    fieldRef: overrideRef,
-                }))
-                items.push(tray.text(`Now using: ${effectiveInfo.get()}`, { style: { fontSize: "11px", opacity: "0.7" } }))
-            }
+                items.push(
+                    tray.text("Per-anime override", { style: { fontWeight: "600", marginTop: "8px" } }),
+                    tray.text(`Viewing: ${currentMediaTitle.get()}`, { style: { fontSize: "12px", opacity: "0.7" } }),
+                    tray.input({ placeholder: "LiveChart ID (leave blank to auto-detect)", fieldRef: mediaIdRef }),
+                )
 
-            items.push(
-                tray.flex({
-                    gap: 2,
-                    items: [
-                        tray.button({ label: "Load", size: "xs", intent: "primary", onClick: "load-lc-for-id" }),
-                        tray.button({ label: "Refresh", size: "xs", intent: "gray-subtle", onClick: "refresh-lc-lookup" }),
-                        tray.button({ label: "Clear cached matches", size: "xs", intent: "alert-subtle", onClick: "clear-lc-cache" }),
-                    ],
-                }),
-            )
+                const err = loadError.get()
+                const options = scheduleOptions.get()
+                if (loading.get()) {
+                    items.push(tray.text("Loading LiveChart schedules…", { style: { fontSize: "12px", opacity: "0.7" } }))
+                } else if (err) {
+                    items.push(tray.text(err, { style: { fontSize: "12px", opacity: "0.7" } }))
+                } else if (!options.length) {
+                    items.push(tray.text("Open an anime page to fetch its schedules", { style: { fontSize: "12px", opacity: "0.7" } }))
+                } else {
+                    items.push(tray.select({
+                        label: "",
+                        placeholder: "Use global default",
+                        options: [{ label: "Use global default", value: DEFAULT_OVERRIDE_VALUE }, ...options],
+                        fieldRef: overrideRef,
+                    }))
+                    items.push(tray.text(`Now using: ${effectiveInfo.get()}`, { style: { fontSize: "11px", opacity: "0.7" } }))
+                }
+
+                items.push(
+                    tray.flex({
+                        gap: 2,
+                        items: [
+                            tray.button({ label: "Load", size: "xs", intent: "primary", onClick: "load-lc-for-id" }),
+                            tray.button({ label: "Refresh", size: "xs", intent: "gray-subtle", onClick: "refresh-lc-lookup" }),
+                            tray.button({ label: "Clear cached matches", size: "xs", intent: "alert-subtle", onClick: "clear-lc-cache" }),
+                        ],
+                    }),
+                )
+            }
 
             return tray.stack({ gap: 3, items })
         })
