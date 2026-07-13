@@ -583,7 +583,7 @@ function init() {
             const dubTracks = s.tracks.filter(t => t.category === "AURAL" && t.languageCode !== "ja")
             if (dubTracks.length === 1) parts.push(`(${dubTracks[0].languageCode.toUpperCase()})`)
 
-            return parts.join(" — ")
+            return parts.join(" - ")
         }
 
         function formatDateUTC(d: Date): string {
