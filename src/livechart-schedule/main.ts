@@ -28,10 +28,14 @@ function init() {
         const OVERRIDE_KEY = "livechart.override"
         const RECENT_AIR_KEY = "livechart.recentAirTimes"
         const GLOBAL_MODE_KEY = "livechart.globalMode"
+        const GLOBAL_DUB_ENABLED_KEY = "livechart.globalDubEnabled"
+        const GLOBAL_DUB_LANG_KEY = "livechart.globalDubLanguage"
         const mapping = $storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {}
         const schedulesCache = $storage.get<Record<string, { fetchedAt: number; schedules: LcSchedule[] }>>(SCHEDULES_KEY) || {}
         const overrides = $storage.get<Record<string, string>>(OVERRIDE_KEY) || {}
         const globalMode = $storage.get<string>(GLOBAL_MODE_KEY) || "japan"
+        const globalDubEnabled = $storage.get<boolean>(GLOBAL_DUB_ENABLED_KEY) === true
+        const globalDubLanguage = $storage.get<string>(GLOBAL_DUB_LANG_KEY) || ""
         const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
         let recentAirTimesChanged = false
 
@@ -42,7 +46,7 @@ function init() {
             recentAirTimesChanged = true
         }
 
-        function pickSchedule(mediaId: number, schedules: LcSchedule[]): LcSchedule | null {
+        function pickSchedule(mediaId: number, schedules: LcSchedule[], info?: { dubFallback?: boolean }): LcSchedule | null {
             if (!schedules.length) return null
 
             const overrideId = overrides[String(mediaId)]
@@ -55,6 +59,11 @@ function init() {
             if (globalMode === "japan") return jp || schedules[0]
 
             const nonJp = schedules.filter(s => !s.isJapan)
+            if (globalDubEnabled && globalDubLanguage) {
+                const dub = nonJp.find(s => s.tracks.some(t => t.category === "AURAL" && t.languageCode === globalDubLanguage) && s.nextEpisodeDate != null && s.nextEpisodeNumber != null)
+                if (dub) return dub
+                if (info) info.dubFallback = true
+            }
             const sub = nonJp.find(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
             return sub || nonJp[0] || jp || schedules[0]
         }
@@ -79,15 +88,13 @@ function init() {
                 const schedules = scheduleEntry ? scheduleEntry.schedules : null
                 if (!schedules || !schedules.length) continue
 
-                const chosen = pickSchedule(mediaId, schedules)
+                const scheduleInfo: { dubFallback?: boolean } = {}
+                const chosen = pickSchedule(mediaId, schedules, scheduleInfo)
                 if (!chosen || chosen.nextEpisodeDate == null || chosen.nextEpisodeNumber == null) continue
                 const chosenMs = new Date(chosen.nextEpisodeDate).getTime()
                 if (isNaN(chosenMs)) continue
                 const chosenSeconds = Math.floor(chosenMs / 1000)
 
-                // Anchor: the row AniList itself thinks is that same episode
-                // number - used to measure how far off AniList's prediction
-                // currently is, so that offset can be reapplied everywhere.
                 let anchorRaw: number | null = null
                 for (const it of items) {
                     if (it.episodeNumber !== chosen.nextEpisodeNumber || !it.dateTime) continue
@@ -106,6 +113,7 @@ function init() {
                     it.dateTime = d.toISOString()
                     it.time = `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`
                     recordRecentAirTime(mediaId, it.episodeNumber, newSeconds)
+                    if (scheduleInfo.dubFallback && it.title.indexOf("⚠️") !== 0) it.title = `⚠️ ${it.title}`
                 }
             } catch (err) {
                 // keep this anime's rows at their original AniList-derived times
@@ -121,14 +129,15 @@ function init() {
         const OVERRIDE_KEY = "livechart.override"
         const RECENT_AIR_KEY = "livechart.recentAirTimes"
         const GLOBAL_MODE_KEY = "livechart.globalMode"
+        const GLOBAL_DUB_ENABLED_KEY = "livechart.globalDubEnabled"
+        const GLOBAL_DUB_LANG_KEY = "livechart.globalDubLanguage"
 
-        // See the matching comment in onAnimeScheduleItems: reads happen once
-        // per hook call rather than once per collection entry, since this can
-        // iterate the user's whole library.
         const mapping = $storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {}
         const schedulesCache = $storage.get<Record<string, { fetchedAt: number; schedules: LcSchedule[] }>>(SCHEDULES_KEY) || {}
         const overrides = $storage.get<Record<string, string>>(OVERRIDE_KEY) || {}
         const globalMode = $storage.get<string>(GLOBAL_MODE_KEY) || "japan"
+        const globalDubEnabled = $storage.get<boolean>(GLOBAL_DUB_ENABLED_KEY) === true
+        const globalDubLanguage = $storage.get<string>(GLOBAL_DUB_LANG_KEY) || ""
         const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
         let recentAirTimesChanged = false
 
@@ -139,7 +148,7 @@ function init() {
             recentAirTimesChanged = true
         }
 
-        function pickSchedule(mediaId: number, schedules: LcSchedule[]): LcSchedule | null {
+        function pickSchedule(mediaId: number, schedules: LcSchedule[], info?: { dubFallback?: boolean }): LcSchedule | null {
             if (!schedules.length) return null
 
             const overrideId = overrides[String(mediaId)]
@@ -152,6 +161,11 @@ function init() {
             if (globalMode === "japan") return jp || schedules[0]
 
             const nonJp = schedules.filter(s => !s.isJapan)
+            if (globalDubEnabled && globalDubLanguage) {
+                const dub = nonJp.find(s => s.tracks.some(t => t.category === "AURAL" && t.languageCode === globalDubLanguage) && s.nextEpisodeDate != null && s.nextEpisodeNumber != null)
+                if (dub) return dub
+                if (info) info.dubFallback = true
+            }
             const sub = nonJp.find(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
             return sub || nonJp[0] || jp || schedules[0]
         }
@@ -230,11 +244,15 @@ function init() {
         const OVERRIDE_KEY = "livechart.override"
         const RECENT_AIR_KEY = "livechart.recentAirTimes"
         const GLOBAL_MODE_KEY = "livechart.globalMode"
+        const GLOBAL_DUB_ENABLED_KEY = "livechart.globalDubEnabled"
+        const GLOBAL_DUB_LANG_KEY = "livechart.globalDubLanguage"
 
         const mapping = $storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {}
         const schedulesCache = $storage.get<Record<string, { fetchedAt: number; schedules: LcSchedule[] }>>(SCHEDULES_KEY) || {}
         const overrides = $storage.get<Record<string, string>>(OVERRIDE_KEY) || {}
         const globalMode = $storage.get<string>(GLOBAL_MODE_KEY) || "japan"
+        const globalDubEnabled = $storage.get<boolean>(GLOBAL_DUB_ENABLED_KEY) === true
+        const globalDubLanguage = $storage.get<string>(GLOBAL_DUB_LANG_KEY) || ""
 
         function recordRecentAirTime(mediaId: number, episodeNumber: number, seconds: number) {
             const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
@@ -244,7 +262,7 @@ function init() {
             $storage.set(RECENT_AIR_KEY, recentAirTimes)
         }
 
-        function pickSchedule(mediaId: number, schedules: LcSchedule[]): LcSchedule | null {
+        function pickSchedule(mediaId: number, schedules: LcSchedule[], info?: { dubFallback?: boolean }): LcSchedule | null {
             if (!schedules.length) return null
 
             const overrideId = overrides[String(mediaId)]
@@ -257,6 +275,11 @@ function init() {
             if (globalMode === "japan") return jp || schedules[0]
 
             const nonJp = schedules.filter(s => !s.isJapan)
+            if (globalDubEnabled && globalDubLanguage) {
+                const dub = nonJp.find(s => s.tracks.some(t => t.category === "AURAL" && t.languageCode === globalDubLanguage) && s.nextEpisodeDate != null && s.nextEpisodeNumber != null)
+                if (dub) return dub
+                if (info) info.dubFallback = true
+            }
             const sub = nonJp.find(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
             return sub || nonJp[0] || jp || schedules[0]
         }
@@ -322,11 +345,15 @@ function init() {
         const OVERRIDE_KEY = "livechart.override"
         const RECENT_AIR_KEY = "livechart.recentAirTimes"
         const GLOBAL_MODE_KEY = "livechart.globalMode"
+        const GLOBAL_DUB_ENABLED_KEY = "livechart.globalDubEnabled"
+        const GLOBAL_DUB_LANG_KEY = "livechart.globalDubLanguage"
 
         const mapping = $storage.get<Record<string, { id: string | null; checkedAt: number }>>(MAPPING_KEY) || {}
         const schedulesCache = $storage.get<Record<string, { fetchedAt: number; schedules: LcSchedule[] }>>(SCHEDULES_KEY) || {}
         const overrides = $storage.get<Record<string, string>>(OVERRIDE_KEY) || {}
         const globalMode = $storage.get<string>(GLOBAL_MODE_KEY) || "japan"
+        const globalDubEnabled = $storage.get<boolean>(GLOBAL_DUB_ENABLED_KEY) === true
+        const globalDubLanguage = $storage.get<string>(GLOBAL_DUB_LANG_KEY) || ""
         const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
         let recentAirTimesChanged = false
 
@@ -337,7 +364,7 @@ function init() {
             recentAirTimesChanged = true
         }
 
-        function pickSchedule(mediaId: number, schedules: LcSchedule[]): LcSchedule | null {
+        function pickSchedule(mediaId: number, schedules: LcSchedule[], info?: { dubFallback?: boolean }): LcSchedule | null {
             if (!schedules.length) return null
 
             const overrideId = overrides[String(mediaId)]
@@ -350,6 +377,11 @@ function init() {
             if (globalMode === "japan") return jp || schedules[0]
 
             const nonJp = schedules.filter(s => !s.isJapan)
+            if (globalDubEnabled && globalDubLanguage) {
+                const dub = nonJp.find(s => s.tracks.some(t => t.category === "AURAL" && t.languageCode === globalDubLanguage) && s.nextEpisodeDate != null && s.nextEpisodeNumber != null)
+                if (dub) return dub
+                if (info) info.dubFallback = true
+            }
             const sub = nonJp.find(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
             return sub || nonJp[0] || jp || schedules[0]
         }
@@ -397,9 +429,6 @@ function init() {
             try {
                 const result = resolveNextEpisodeInfo(episode.mediaId, episode.episodeNumber, episode.airingAt, true)
                 if (result != null) {
-                    // episodeMetadata (title/image/summary) was fetched for the
-                    // original episode number - stale metadata under a
-                    // different number would be worse than none.
                     if (result.episode !== episode.episodeNumber) episode.episodeMetadata = undefined
                     episode.episodeNumber = result.episode
                     episode.airingAt = result.seconds
@@ -442,6 +471,8 @@ function init() {
 
     $ui.register((ctx) => {
         const GLOBAL_MODE_KEY = "livechart.globalMode"
+        const GLOBAL_DUB_ENABLED_KEY = "livechart.globalDubEnabled"
+        const GLOBAL_DUB_LANG_KEY = "livechart.globalDubLanguage"
         const MAPPING_KEY = "livechart.mapping"
         const SCHEDULES_KEY = "livechart.schedules"
         const OVERRIDE_KEY = "livechart.override"
@@ -456,6 +487,22 @@ function init() {
         const WARM_QUEUE_REBUILD_MS = 10 * 60 * 1000
         const WARM_REFRESH_THROTTLE_MS = 5000
         const DEFAULT_OVERRIDE_VALUE = "__use_global_default__"
+
+        const DUB_LANGUAGE_OPTIONS = [
+            { label: "English", value: "en" },
+            { label: "Spanish (Latin America)", value: "es-419" },
+            { label: "Spanish (Spain)", value: "es-es" },
+            { label: "Portuguese (Brazil)", value: "pt-br" },
+            { label: "French", value: "fr" },
+            { label: "German", value: "de" },
+            { label: "Italian", value: "it" },
+            { label: "Polish", value: "pl" },
+            { label: "Russian", value: "ru" },
+            { label: "Arabic", value: "ar" },
+            { label: "Hindi", value: "hi" },
+            { label: "Tamil", value: "ta" },
+            { label: "Telugu", value: "te" },
+        ]
 
         const LC_ENDPOINT = "https://www.livechart.me/graphql"
 
@@ -498,9 +545,6 @@ function init() {
             $storage.set(MAPPING_KEY, m)
         }
 
-        // A manually-pinned mapping (set via the LiveChart ID override in the
-        // tray) is remembered indefinitely and never touched by auto-search,
-        // for anime whose title search picks the wrong result or finds none.
         function setManualMapping(mediaId: number, lcId: string) {
             const mapping = readMapping()
             mapping[String(mediaId)] = { id: lcId, checkedAt: Date.now(), manual: true }
@@ -561,7 +605,7 @@ function init() {
             }))
         }
 
-        function pickSchedule(mediaId: number, schedules: LcSchedule[]): LcSchedule | null {
+        function pickSchedule(mediaId: number, schedules: LcSchedule[], info?: { dubFallback?: boolean }): LcSchedule | null {
             if (!schedules.length) return null
 
             const overrideId = getOverrides()[String(mediaId)]
@@ -571,10 +615,16 @@ function init() {
             }
 
             const jp = schedules.find(s => s.isJapan) || null
-            const mode = $storage.get<string>(GLOBAL_MODE_KEY) || "japan"
-            if (mode === "japan") return jp || schedules[0]
+            if (globalModeState.get() === "japan") return jp || schedules[0]
 
             const nonJp = schedules.filter(s => !s.isJapan)
+            const dubEnabled = dubEnabledState.get()
+            const dubLanguage = globalDubLangRef.current
+            if (dubEnabled && dubLanguage) {
+                const dub = nonJp.find(s => s.tracks.some(t => t.category === "AURAL" && t.languageCode === dubLanguage) && s.nextEpisodeDate != null && s.nextEpisodeNumber != null)
+                if (dub) return dub
+                if (info) info.dubFallback = true
+            }
             const sub = nonJp.find(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
             return sub || nonJp[0] || jp || schedules[0]
         }
@@ -583,21 +633,11 @@ function init() {
             if (s.isJapan) return "Japan Broadcast"
             const parts: string[] = []
             if (s.networkName) parts.push(s.networkName)
-
-            // shortTitle stays compact ("Sub"/"Dub"), but the full title
-            // sometimes carries a parenthetical qualifier shortTitle drops
-            // entirely (e.g. "Simulcast (India): Subbed" vs "Sub") - keep
-            // just that qualifier so a network's regional variant stays
-            // distinguishable from its regular one without pulling in the
-            // whole verbose title.
             let base = s.shortTitle || s.title || "Schedule"
             const qualifier = /\(([^)]+)\)/.exec(s.title)
             if (qualifier && !base.includes(qualifier[1])) base += ` (${qualifier[1]})`
             parts.push(base)
 
-            // Only the dub language is worth showing inline - a sub schedule
-            // usually bundles many subtitle languages, and listing those is
-            // what made these labels too long for the dropdown.
             const dubTracks = s.tracks.filter(t => t.category === "AURAL" && t.languageCode !== "ja")
             if (dubTracks.length === 1) parts.push(`(${dubTracks[0].languageCode.toUpperCase()})`)
 
@@ -638,9 +678,6 @@ function init() {
             const key = String(mediaId)
             const cached = mapping[key]
             const now = Date.now()
-            // A manual mapping is pinned indefinitely - never re-searched,
-            // even on a forced refresh (use the LiveChart ID override to
-            // change or "Clear cached matches" to remove it).
             if (cached && cached.manual) return cached.id
             if (!forceRefresh && cached) {
                 const ttl = cached.id ? MAPPING_TTL_HIT : MAPPING_TTL_MISS
@@ -696,6 +733,8 @@ function init() {
             return ""
         }
 
+        let cancelPendingCollectionRefresh: (() => void) | null = null
+
         function refreshSchedule(includeUpcomingEpisodes: boolean = true) {
             ctx.anime.clearScheduleCache()
             $app.invalidateClientQuery([
@@ -704,7 +743,13 @@ function init() {
                 "ANIME-ENTRIES-get-anime-entry",
                 "ANIME-ENTRIES-get-upcoming-episodes",
             ])
-            if (includeUpcomingEpisodes) $anilist.refreshAnimeCollection()
+            if (!includeUpcomingEpisodes) return
+
+            if (cancelPendingCollectionRefresh) cancelPendingCollectionRefresh()
+            cancelPendingCollectionRefresh = ctx.setTimeout(() => {
+                cancelPendingCollectionRefresh = null
+                $anilist.refreshAnimeCollection()
+            }, 1200)
         }
 
         const tray = ctx.newTray({
@@ -721,22 +766,26 @@ function init() {
         const loading = ctx.state<boolean>(false)
         const warmProgress = ctx.state<{ done: number; total: number }>({ done: 0, total: 0 })
         const warmError = ctx.state<string>("")
-        // The AniList media ID of whichever anime the tray is currently
-        // configuring - set by navigating to that anime's page, since a
-        // wrong AniList ID isn't something you'd rationally want to type in.
         const activeMediaId = ctx.state<number>(0)
         const overridesModalOpen = ctx.state<boolean>(false)
-
+        const globalModeState = ctx.state<string>($storage.get<string>(GLOBAL_MODE_KEY) || "japan")
+        const dubEnabledState = ctx.state<boolean>($storage.get<boolean>(GLOBAL_DUB_ENABLED_KEY) === true)
         const globalModeRef = ctx.fieldRef<string>($storage.get<string>(GLOBAL_MODE_KEY) || "japan")
-        // Optional LiveChart ID override for the active anime - blank means
-        // "use auto-detection".
+        const globalDubRef = ctx.fieldRef<boolean>($storage.get<boolean>(GLOBAL_DUB_ENABLED_KEY) === true)
+        const globalDubLangRef = ctx.fieldRef<string>($storage.get<string>(GLOBAL_DUB_LANG_KEY) || DUB_LANGUAGE_OPTIONS[0].value)
         const mediaIdRef = ctx.fieldRef<string>("")
         const overrideRef = ctx.fieldRef<string>(DEFAULT_OVERRIDE_VALUE)
         const suppressContinueWatchingRef = ctx.fieldRef<boolean>($storage.get<boolean>(SUPPRESS_CONTINUE_WATCHING_KEY) !== false)
 
         function updateEffectiveInfo(mediaId: number, schedules: LcSchedule[]) {
-            const chosen = pickSchedule(mediaId, schedules)
-            effectiveInfo.set(chosen ? `${scheduleLabel(chosen)} · ${scheduleStatusText(chosen)}` : "No data available")
+            const info: { dubFallback?: boolean } = {}
+            const chosen = pickSchedule(mediaId, schedules, info)
+            if (!chosen) {
+                effectiveInfo.set("No data available")
+                return
+            }
+            const fallbackNote = info.dubFallback ? " · ⚠️ preferred dub not found, showing sub" : ""
+            effectiveInfo.set(`${scheduleLabel(chosen)} · ${scheduleStatusText(chosen)}${fallbackNote}`)
         }
 
         function getOverrideEntries(): { mediaId: number; title: string }[] {
@@ -861,17 +910,44 @@ function init() {
         }
 
         globalModeRef.onValueChange((v) => {
-            $storage.set(GLOBAL_MODE_KEY, v)
-            refreshSchedule()
+            globalModeState.set(v)
             const id = activeMediaId.get()
             if (id) updateEffectiveInfo(id, currentSchedules.get())
             ctx.toast.success(`Global schedule preference set to ${v === "japan" ? "Japan Broadcast" : "Simulcast"}`)
+            ctx.setTimeout(() => {
+                $storage.set(GLOBAL_MODE_KEY, v)
+                refreshSchedule()
+            }, 0)
+        })
+
+        globalDubRef.onValueChange((v) => {
+            dubEnabledState.set(v)
+            const id = activeMediaId.get()
+            if (id) updateEffectiveInfo(id, currentSchedules.get())
+            ctx.toast.success(v ? "Preferred dub language enabled" : "Preferred dub language disabled")
+            ctx.setTimeout(() => {
+                $storage.set(GLOBAL_DUB_ENABLED_KEY, v)
+                refreshSchedule()
+            }, 0)
+        })
+
+        globalDubLangRef.onValueChange((v) => {
+            const id = activeMediaId.get()
+            if (id) updateEffectiveInfo(id, currentSchedules.get())
+            const label = DUB_LANGUAGE_OPTIONS.find(o => o.value === v)
+            ctx.toast.success(`Preferred dub language set to ${label ? label.label : v}`)
+            ctx.setTimeout(() => {
+                $storage.set(GLOBAL_DUB_LANG_KEY, v)
+                refreshSchedule()
+            }, 0)
         })
 
         suppressContinueWatchingRef.onValueChange((v) => {
-            $storage.set(SUPPRESS_CONTINUE_WATCHING_KEY, v)
-            refreshSchedule()
             ctx.toast.success(v ? "Continue Watching will wait for the real release" : "Continue Watching suppression disabled")
+            ctx.setTimeout(() => {
+                $storage.set(SUPPRESS_CONTINUE_WATCHING_KEY, v)
+                refreshSchedule()
+            }, 0)
         })
 
         overrideRef.onValueChange((v) => {
@@ -991,6 +1067,26 @@ function init() {
                     "Simulcast picks the subbed release automatically.",
                     { style: { fontSize: "11px", opacity: "0.7" } },
                 ),
+            ]
+
+            if (globalModeState.get() === "simulcast") {
+                items.push(tray.switch({
+                    label: "Prefer dub",
+                    side: "left",
+                    fieldRef: globalDubRef,
+                }))
+                if (dubEnabledState.get()) {
+                    items.push(
+                        tray.select({ label: "", options: DUB_LANGUAGE_OPTIONS, fieldRef: globalDubLangRef }),
+                        tray.text(
+                            "Falls back to the subbed simulcast if this dub isn't listed for an anime, flagged with ⚠️ in the schedule.",
+                            { style: { fontSize: "11px", opacity: "0.7" } },
+                        ),
+                    )
+                }
+            }
+
+            items.push(
                 tray.switch({
                     label: "Hide unreleased episodes from Continue Watching",
                     side: "left",
@@ -1029,7 +1125,7 @@ function init() {
                         ]
                     })(),
                 }),
-            ]
+            )
 
             const progress = warmProgress.get()
             if (progress.total > 0 && progress.done < progress.total) {
@@ -1086,13 +1182,6 @@ function init() {
             }
 
             return tray.stack({ gap: 3, items })
-        })
-
-        const scheduleDropdownItem = ctx.action.newAnimePageDropdownItem({ label: "LiveChart Schedule" })
-        scheduleDropdownItem.mount()
-        scheduleDropdownItem.onClick((event) => {
-            loadMediaIntoForm(event.media.id, safeAnimeTitle(event.media))
-            tray.open()
         })
 
         let warmQueue: number[] = []
