@@ -1069,22 +1069,23 @@ function init() {
                 ),
             ]
 
-            if (globalModeState.get() === "simulcast") {
-                items.push(tray.switch({
-                    label: "Prefer dub",
-                    side: "left",
-                    fieldRef: globalDubRef,
-                }))
-                if (dubEnabledState.get()) {
-                    items.push(
+            items.push(tray.stack({
+                gap: 2,
+                items: globalModeState.get() === "simulcast" ? [
+                    tray.switch({
+                        label: "Prefer dub",
+                        side: "left",
+                        fieldRef: globalDubRef,
+                    }),
+                    ...(dubEnabledState.get() ? [
                         tray.select({ label: "", options: DUB_LANGUAGE_OPTIONS, fieldRef: globalDubLangRef }),
                         tray.text(
                             "Falls back to the subbed simulcast if this dub isn't listed for an anime, flagged with ⚠️ in the schedule.",
                             { style: { fontSize: "11px", opacity: "0.7" } },
                         ),
-                    )
-                }
-            }
+                    ] : []),
+                ] : [],
+            }))
 
             items.push(
                 tray.switch({
