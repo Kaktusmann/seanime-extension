@@ -10,7 +10,7 @@
   "icon": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/friend-stats/icon.ico",
   "website": "",
   "lang": "multi",
-  "payloadURI": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/friend-stats/provider.ts",
+  "payloadURI": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/friend-stats/main.ts",
   "plugin": {
     "version": "1",
     "permissions": {
