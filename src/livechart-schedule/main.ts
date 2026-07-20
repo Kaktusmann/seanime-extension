@@ -37,11 +37,14 @@ function init() {
         const globalDubEnabled = $storage.get<boolean>(GLOBAL_DUB_ENABLED_KEY) === true
         const globalDubLanguage = $storage.get<string>(GLOBAL_DUB_LANG_KEY) || ""
         const recentAirTimes = $storage.get<Record<string, number>>(RECENT_AIR_KEY) || {}
+        const nowSecondsForRecording = Math.floor(Date.now() / 1000)
         let recentAirTimesChanged = false
 
         function recordRecentAirTime(mediaId: number, episodeNumber: number, seconds: number) {
             const key = `${mediaId}-${episodeNumber}`
-            if (recentAirTimes[key] === seconds) return
+            const existing = recentAirTimes[key]
+            if (existing === seconds) return
+            if (existing !== undefined && existing <= nowSecondsForRecording && seconds > existing) return
             recentAirTimes[key] = seconds
             recentAirTimesChanged = true
         }
@@ -1069,6 +1072,14 @@ function init() {
                 ),
             ]
 
+            // Wrapped in a stack that always occupies this same position/type in
+            // the tree, even when empty (Japan Broadcast mode) - Seanime's
+            // component diffing matches same-type components by tree position
+            // when nothing else disambiguates them, and conditionally
+            // pushing/omitting the "Prefer dub" switch directly into the outer
+            // items array let it get matched against whatever unrelated switch
+            // (e.g. "Hide unreleased episodes...") next occupied its old slot,
+            // inheriting that switch's checked state instead of its own.
             items.push(tray.stack({
                 gap: 2,
                 items: globalModeState.get() === "simulcast" ? [
