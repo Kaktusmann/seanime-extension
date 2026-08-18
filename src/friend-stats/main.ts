@@ -3,11 +3,13 @@
 /// <reference path="./app.d.ts" />
 /// <reference path="./core.d.ts" />
 
+type MediaType = "anime" | "manga"
+
 interface FriendListEntry {
     status: $app.AL_MediaListStatus
     score: number
     progress: number
-    media: { episodes?: number }
+    media: { episodes?: number, chapters?: number }
     user: {
         name: string
         avatar?: { large?: string }
@@ -19,19 +21,37 @@ const CACHE_TTL_MS = 5 * 60 * 1000
 function init() {
     $ui.register((ctx) => {
         const mediaId = ctx.state(0)
+        const mediaType = ctx.state<MediaType | null>(null)
         const friends = ctx.state<FriendListEntry[]>([])
 
-        const panel = ctx.newWebview({
+        const animePanel = ctx.newWebview({
             slot: "after-anime-entry-episode-list",
             fullWidth: true,
             autoHeight: true,
         })
 
-        panel.channel.sync("friends", friends)
-        
+        const mangaPanel = ctx.newWebview({
+            slot: "after-manga-entry-chapter-list",
+            fullWidth: true,
+            autoHeight: true,
+        })
+
+        // Both panels share the same state and content - only the slot differs.
+        animePanel.channel.sync("friends", friends)
+        animePanel.channel.sync("mediaType", mediaType)
+        mangaPanel.channel.sync("friends", friends)
+        mangaPanel.channel.sync("mediaType", mediaType)
+
+        // The webview iframe is sandboxed and can't open external links itself (no allow-popups),
+        // so it asks the plugin context to launch the OS's URL opener instead. The channel.on
+        // handler itself runs in a restricted context without access to $os, so it only flips
+        // this flag; the actual $os.cmd call happens in the effect below.
         const openUrl = ctx.state("")
 
-        panel.channel.on("open-profile", (url: string) => {
+        animePanel.channel.on("open-profile", (url: string) => {
+            openUrl.set(url)
+        })
+        mangaPanel.channel.on("open-profile", (url: string) => {
             openUrl.set(url)
         })
 
@@ -55,17 +75,30 @@ function init() {
         }, [openUrl])
 
         ctx.screen.onNavigate((e) => {
-            mediaId.set(e.pathname === "/entry" && !!e.searchParams.id ? parseInt(e.searchParams.id) : 0)
+            if (e.pathname === "/entry" && !!e.searchParams.id) {
+                mediaType.set("anime")
+                mediaId.set(parseInt(e.searchParams.id))
+            } else if (e.pathname.startsWith("/manga/entry") && !!e.searchParams.id) {
+                mediaType.set("manga")
+                mediaId.set(parseInt(e.searchParams.id))
+            } else {
+                mediaType.set(null)
+                mediaId.set(0)
+            }
         })
         ctx.screen.loadCurrent()
 
         ctx.effect(() => {
             const id = mediaId.get()
-            if (!id) {
+            const type = mediaType.get()
+            if (!id || !type) {
                 friends.set([])
-                panel.hide()
+                animePanel.hide()
+                mangaPanel.hide()
                 return
             }
+
+            const panel = type === "anime" ? animePanel : mangaPanel
 
             const entries = ctx.cache.getOrSet(`friends-${id}`, () => {
                 const token = $database.anilist.getToken()
@@ -80,6 +113,7 @@ function init() {
                                 progress
                                 media {
                                     episodes
+                                    chapters
                                 }
                                 user {
                                     name
@@ -109,9 +143,9 @@ function init() {
             } else {
                 panel.hide()
             }
-        }, [mediaId])
+        }, [mediaId, mediaType])
 
-        panel.setContent(() => `
+        const panelContent = () => `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -133,8 +167,14 @@ function init() {
 <body>
 <div id="app"></div>
 <script>
-    var STATUS_LABEL = {"CURRENT":"Watching","PLANNING":"Planning","COMPLETED":"Completed","DROPPED":"Dropped","PAUSED":"Paused","REPEATING":"Rewatching"}
+    var STATUS_LABEL = {"CURRENT":{"anime":"Watching","manga":"Reading"},"PLANNING":"Planning","COMPLETED":"Completed","DROPPED":"Dropped","PAUSED":"Paused","REPEATING":{"anime":"Rewatching","manga":"Rereading"}}
     var STATUS_COLOR = {"CURRENT":"#3db4f2","PLANNING":"#f2c94c","COMPLETED":"#4cd137","DROPPED":"#e84118","PAUSED":"#a4a4a4","REPEATING":"#9b59b6"}
+
+    function statusLabel(status, mediaType) {
+        var label = STATUS_LABEL[status]
+        if (label && typeof label === "object") return label[mediaType] || label.anime
+        return label || status
+    }
 
     function scoreColor(score) {
         if (score >= 80) return "#4cd137"
@@ -143,7 +183,7 @@ function init() {
         return "#e84118"
     }
 
-    function render(friends) {
+    function render(friends, mediaType) {
         var app = document.getElementById("app")
         app.innerHTML = ""
         if (!friends || friends.length === 0) return
@@ -182,10 +222,11 @@ function init() {
             row.appendChild(name)
 
             if (f.progress > 0 && f.status !== "COMPLETED") {
-                var totalEpisodes = f.media && f.media.episodes
+                var total = f.media && (mediaType === "manga" ? f.media.chapters : f.media.episodes)
+                var prefix = mediaType === "manga" ? "Ch " : "Ep "
                 var episode = document.createElement("div")
                 episode.className = "episode"
-                episode.textContent = "Ep " + f.progress + (totalEpisodes ? "/" + totalEpisodes : "")
+                episode.textContent = prefix + f.progress + (total ? "/" + total : "")
                 row.appendChild(episode)
             }
 
@@ -200,7 +241,7 @@ function init() {
             var status = document.createElement("div")
             status.className = "status"
             status.style.background = STATUS_COLOR[f.status] || "#a4a4a4"
-            status.textContent = STATUS_LABEL[f.status] || f.status
+            status.textContent = statusLabel(f.status, mediaType)
             row.appendChild(status)
 
             list.appendChild(row)
@@ -209,10 +250,19 @@ function init() {
         app.appendChild(list)
     }
 
-    window.webview.on("friends", render)
+    var _friends = []
+    var _mediaType = "anime"
+
+    function rerender() { render(_friends, _mediaType) }
+
+    window.webview.on("friends", function (d) { _friends = d || []; rerender() })
+    window.webview.on("mediaType", function (d) { _mediaType = d === "manga" ? "manga" : "anime"; rerender() })
 </script>
 </body>
 </html>
-        `)
+        `
+
+        animePanel.setContent(panelContent)
+        mangaPanel.setContent(panelContent)
     })
 }
