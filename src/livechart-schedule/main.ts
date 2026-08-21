@@ -40,6 +40,14 @@ function init() {
         const nowSecondsForRecording = Math.floor(Date.now() / 1000)
         let recentAirTimesChanged = false
 
+        // This hook is the only one that revisits already-aired episodes (via
+        // AniList's "Previous" bucket), recalculating the per-anime offset
+        // fresh from whatever's currently "next" every time it runs. That
+        // offset isn't perfectly identical week to week even for a normally
+        // airing show, so reapplying it can drift an already-passed episode's
+        // recorded time later than reality - which would re-hide it in
+        // Continue Watching. Once an episode's recorded time is already in
+        // the past, never push it back into the future.
         function recordRecentAirTime(mediaId: number, episodeNumber: number, seconds: number) {
             const key = `${mediaId}-${episodeNumber}`
             const existing = recentAirTimes[key]
@@ -522,6 +530,10 @@ function init() {
             }
         }`
 
+        const LC_VERIFY_QUERY = `query($id: ID!) {
+            singleAnime(id: $id) { anilistUrl }
+        }`
+
         const LC_SCHEDULES_QUERY = `query($id: ID!) {
             singleAnime(id: $id) {
                 releaseSchedules(first: 30) {
@@ -882,10 +894,33 @@ function init() {
         }
 
 
+        // Manual pins skip discoverLcAnimeId's own anilistUrl cross-check
+        // entirely (that's the whole point - it's for cases auto-search
+        // can't resolve), so this is the one path where a typo or mixed-up
+        // ID (e.g. a franchise's main show vs. its companion "Break Time"
+        // short, which have near-identical titles and easily-confused
+        // LiveChart pages) would otherwise stick permanently and silently.
+        // Warn - without blocking, since LiveChart doesn't always expose
+        // anilistUrl - if the entered ID doesn't link back to this anime.
+        async function verifyLcIdMatches(mediaId: number, lcId: string) {
+            try {
+                const data = await lcQuery<{ singleAnime?: { anilistUrl?: string } }>(LC_VERIFY_QUERY, { id: lcId })
+                const url = data.singleAnime && data.singleAnime.anilistUrl
+                const linkedId = url ? extractAnilistId(url) : null
+                if (linkedId != null && linkedId !== mediaId) {
+                    ctx.toast.error(`Heads up: LiveChart ID ${lcId} is linked to a different AniList entry (id ${linkedId}), not this anime. Double-check the ID - companion/short series (e.g. "Break Time" specials) often have their own separate LiveChart page.`)
+                }
+            } catch (err) {
+                // Can't verify (LiveChart unreachable, or no anilistUrl on their
+                // end) - let the user's entry stand rather than blocking on it.
+            }
+        }
+
         async function loadAnimeSchedulesForLcId(mediaId: number, lcId: string, forceRefresh: boolean) {
             loadError.set("")
             loading.set(true)
             try {
+                await verifyLcIdMatches(mediaId, lcId)
                 setManualMapping(mediaId, lcId)
                 setOverrideTitle(mediaId, currentMediaTitle.get())
                 await applySchedules(mediaId, lcId, forceRefresh)
@@ -1200,8 +1235,28 @@ function init() {
         let warmQueueTotal = 0
         let warmQueueBuiltAt = 0
         let lastWarmRefreshAt = 0
+        // ctx.setInterval doesn't wait for warmNext()'s promise to settle
+        // before the next tick fires, and a LiveChart fetch can easily take
+        // longer than WARM_TICK_MS - without this guard, two overlapping
+        // calls processing two different anime each do their own
+        // read-modify-write of the shared mapping/schedules storage blobs,
+        // and whichever writes back last silently clobbers the other's
+        // update with its own (now-stale) snapshot. Serializing ticks makes
+        // each discoverLcAnimeId/refreshLcSchedules read-modify-write cycle
+        // atomic with respect to the others.
+        let warmInProgress = false
 
         async function warmNext() {
+            if (warmInProgress) return
+            warmInProgress = true
+            try {
+                await warmNextStep()
+            } finally {
+                warmInProgress = false
+            }
+        }
+
+        async function warmNextStep() {
             const now = Date.now()
             if (warmQueue.length === 0 && now - warmQueueBuiltAt > WARM_QUEUE_REBUILD_MS) {
                 try {
