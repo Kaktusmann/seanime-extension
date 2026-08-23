@@ -75,7 +75,14 @@ function init() {
                 if (dub) return dub
                 if (info) info.dubFallback = true
             }
-            const sub = nonJp.find(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
+            const subCandidates = nonJp.filter(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
+            // LiveChart's releaseSchedules aren't returned in any meaningful
+            // order, so blindly taking the first "sub" match is arbitrary and
+            // can land on a regional pickup (e.g. Muse Asia, BiliBili) with
+            // different timing than the actual major simulcast platform -
+            // prefer well-known global platforms deterministically instead.
+            const preferredNetworks = ["Crunchyroll", "Netflix", "HIDIVE", "Disney+", "Funimation"]
+            const sub = preferredNetworks.map(n => subCandidates.find(s => s.networkName === n)).find(s => s) || subCandidates[0]
             return sub || nonJp[0] || jp || schedules[0]
         }
 
@@ -177,7 +184,14 @@ function init() {
                 if (dub) return dub
                 if (info) info.dubFallback = true
             }
-            const sub = nonJp.find(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
+            const subCandidates = nonJp.filter(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
+            // LiveChart's releaseSchedules aren't returned in any meaningful
+            // order, so blindly taking the first "sub" match is arbitrary and
+            // can land on a regional pickup (e.g. Muse Asia, BiliBili) with
+            // different timing than the actual major simulcast platform -
+            // prefer well-known global platforms deterministically instead.
+            const preferredNetworks = ["Crunchyroll", "Netflix", "HIDIVE", "Disney+", "Funimation"]
+            const sub = preferredNetworks.map(n => subCandidates.find(s => s.networkName === n)).find(s => s) || subCandidates[0]
             return sub || nonJp[0] || jp || schedules[0]
         }
 
@@ -291,7 +305,14 @@ function init() {
                 if (dub) return dub
                 if (info) info.dubFallback = true
             }
-            const sub = nonJp.find(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
+            const subCandidates = nonJp.filter(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
+            // LiveChart's releaseSchedules aren't returned in any meaningful
+            // order, so blindly taking the first "sub" match is arbitrary and
+            // can land on a regional pickup (e.g. Muse Asia, BiliBili) with
+            // different timing than the actual major simulcast platform -
+            // prefer well-known global platforms deterministically instead.
+            const preferredNetworks = ["Crunchyroll", "Netflix", "HIDIVE", "Disney+", "Funimation"]
+            const sub = preferredNetworks.map(n => subCandidates.find(s => s.networkName === n)).find(s => s) || subCandidates[0]
             return sub || nonJp[0] || jp || schedules[0]
         }
 
@@ -393,7 +414,14 @@ function init() {
                 if (dub) return dub
                 if (info) info.dubFallback = true
             }
-            const sub = nonJp.find(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
+            const subCandidates = nonJp.filter(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
+            // LiveChart's releaseSchedules aren't returned in any meaningful
+            // order, so blindly taking the first "sub" match is arbitrary and
+            // can land on a regional pickup (e.g. Muse Asia, BiliBili) with
+            // different timing than the actual major simulcast platform -
+            // prefer well-known global platforms deterministically instead.
+            const preferredNetworks = ["Crunchyroll", "Netflix", "HIDIVE", "Disney+", "Funimation"]
+            const sub = preferredNetworks.map(n => subCandidates.find(s => s.networkName === n)).find(s => s) || subCandidates[0]
             return sub || nonJp[0] || jp || schedules[0]
         }
 
@@ -640,7 +668,14 @@ function init() {
                 if (dub) return dub
                 if (info) info.dubFallback = true
             }
-            const sub = nonJp.find(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
+            const subCandidates = nonJp.filter(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
+            // LiveChart's releaseSchedules aren't returned in any meaningful
+            // order, so blindly taking the first "sub" match is arbitrary and
+            // can land on a regional pickup (e.g. Muse Asia, BiliBili) with
+            // different timing than the actual major simulcast platform -
+            // prefer well-known global platforms deterministically instead.
+            const preferredNetworks = ["Crunchyroll", "Netflix", "HIDIVE", "Disney+", "Funimation"]
+            const sub = preferredNetworks.map(n => subCandidates.find(s => s.networkName === n)).find(s => s) || subCandidates[0]
             return sub || nonJp[0] || jp || schedules[0]
         }
 
