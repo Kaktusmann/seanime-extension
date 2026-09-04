@@ -42,21 +42,17 @@ function init() {
         mangaPanel.channel.sync("friends", friends)
         mangaPanel.channel.sync("mediaType", mediaType)
 
-        // The webview iframe is sandboxed and can't open external links itself (no allow-popups),
-        // so it asks the plugin context to launch the OS's URL opener instead. The channel.on
-        // handler itself runs in a restricted context without access to $os, so it only flips
-        // this flag; the actual $os.cmd call happens in the effect below.
-        const openUrl = ctx.state("")
+        const openUrlRequest = ctx.state({ url: "", nonce: 0 })
 
         animePanel.channel.on("open-profile", (url: string) => {
-            openUrl.set(url)
+            openUrlRequest.set(prev => ({ url, nonce: prev.nonce + 1 }))
         })
         mangaPanel.channel.on("open-profile", (url: string) => {
-            openUrl.set(url)
+            openUrlRequest.set(prev => ({ url, nonce: prev.nonce + 1 }))
         })
 
         ctx.effect(() => {
-            const url = openUrl.get()
+            const { url } = openUrlRequest.get()
             if (!url) return
 
             try {
@@ -70,9 +66,7 @@ function init() {
             } catch (err) {
                 console.error("friend-stats: failed to open profile url", err)
             }
-
-            openUrl.set("")
-        }, [openUrl])
+        }, [openUrlRequest])
 
         ctx.screen.onNavigate((e) => {
             if (e.pathname === "/entry" && !!e.searchParams.id) {
