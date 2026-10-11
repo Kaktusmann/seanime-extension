@@ -61,6 +61,7 @@ function init() {
             if (!schedules.length) return null
 
             const overrideId = overrides[String(mediaId)]
+            if (overrideId === "__anilist_only__") return null
             if (overrideId) {
                 const chosen = schedules.find(s => s.databaseId === overrideId)
                 if (chosen) return chosen
@@ -170,6 +171,7 @@ function init() {
             if (!schedules.length) return null
 
             const overrideId = overrides[String(mediaId)]
+            if (overrideId === "__anilist_only__") return null
             if (overrideId) {
                 const chosen = schedules.find(s => s.databaseId === overrideId)
                 if (chosen) return chosen
@@ -291,6 +293,7 @@ function init() {
             if (!schedules.length) return null
 
             const overrideId = overrides[String(mediaId)]
+            if (overrideId === "__anilist_only__") return null
             if (overrideId) {
                 const chosen = schedules.find(s => s.databaseId === overrideId)
                 if (chosen) return chosen
@@ -400,6 +403,7 @@ function init() {
             if (!schedules.length) return null
 
             const overrideId = overrides[String(mediaId)]
+            if (overrideId === "__anilist_only__") return null
             if (overrideId) {
                 const chosen = schedules.find(s => s.databaseId === overrideId)
                 if (chosen) return chosen
@@ -526,6 +530,7 @@ function init() {
         const WARM_QUEUE_REBUILD_MS = 10 * 60 * 1000
         const WARM_REFRESH_THROTTLE_MS = 5000
         const DEFAULT_OVERRIDE_VALUE = "__use_global_default__"
+        const ANILIST_ONLY_VALUE = "__anilist_only__"
 
         const DUB_LANGUAGE_OPTIONS = [
             { label: "English", value: "en" },
@@ -652,6 +657,7 @@ function init() {
             if (!schedules.length) return null
 
             const overrideId = getOverrides()[String(mediaId)]
+            if (overrideId === ANILIST_ONLY_VALUE) return null
             if (overrideId) {
                 const chosen = schedules.find(s => s.databaseId === overrideId)
                 if (chosen) return chosen
@@ -831,7 +837,7 @@ function init() {
             const info: { dubFallback?: boolean } = {}
             const chosen = pickSchedule(mediaId, schedules, info)
             if (!chosen) {
-                effectiveInfo.set("No data available")
+                effectiveInfo.set(getOverrides()[String(mediaId)] === ANILIST_ONLY_VALUE ? "AniList schedule (LiveChart ignored)" : "No data available")
                 return
             }
             const fallbackNote = info.dubFallback ? " · ⚠️ preferred dub not found, showing sub" : ""
@@ -1245,7 +1251,7 @@ function init() {
                     items.push(tray.select({
                         label: "",
                         placeholder: "Use global default",
-                        options: [{ label: "Use global default", value: DEFAULT_OVERRIDE_VALUE }, ...options],
+                        options: [{ label: "Use global default", value: DEFAULT_OVERRIDE_VALUE }, { label: "AniList schedule (exclude from LiveChart)", value: ANILIST_ONLY_VALUE }, ...options],
                         fieldRef: overrideRef,
                     }))
                     items.push(tray.text(`Now using: ${effectiveInfo.get()}`, { style: { fontSize: "11px", opacity: "0.7" } }))
@@ -1331,6 +1337,7 @@ function init() {
             warmProgress.set({ done: warmQueueTotal - warmQueue.length, total: warmQueueTotal })
 
             try {
+                if (getOverrides()[String(mediaId)] === ANILIST_ONLY_VALUE) return
                 const lcId = await discoverLcAnimeId(mediaId, false)
                 if (lcId) {
                     await refreshLcSchedules(lcId, false)
