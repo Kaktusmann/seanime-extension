@@ -176,7 +176,7 @@ function init() {
 
 		const store = $shared.use<OverrideStore>("overrides");
 		const tray = ctx.newTray({ iconUrl: "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/custom-anime-metadata/icon.ico", withContent: true, width: "32rem" });
-		const current = ctx.state<{ id: number; title: string } | null>(null);
+		const current = ctx.state<{ id: number; title: string; banner: string } | null>(null);
 		const refs = Object.fromEntries(FIELDS.map((f) => [f.key, ctx.fieldRef<string>("")])) as Record<FieldKey, ReturnType<typeof ctx.fieldRef<string>>>;
 
 		function fill(override: Override) {
@@ -208,24 +208,57 @@ function init() {
 			refreshClient();
 		}
 
+		function labeledField(label: string, control: any) {
+			return tray.flex([
+				tray.text(label, {
+					className: "flex items-center w-40 shrink-0 whitespace-nowrap px-3 bg-gray-800 rounded-l-xl border text-sm",
+					style: { marginRight: "-1px" },
+				}),
+				control,
+			], { gap: 0 });
+		}
+
+		const controlStyle = { borderRadius: "0 0.75rem 0.75rem 0", background: "rgb(var(--color-gray-900))" };
+
 		tray.render(() => {
 			const media = current.get();
 			if (!media) return tray.text("Open an anime page and choose \"Edit Metadata\".", { className: "p-2 text-sm" });
 
-			const inputs = FIELDS.map((f) =>
-				f.options
-					? tray.select(f.label, { fieldRef: refs[f.key], options: f.options })
-					: tray.input(f.label, { fieldRef: refs[f.key], textarea: f.textarea ?? false, placeholder: "Leave empty to keep the AniList value" }),
+			const fields = FIELDS.map((f) =>
+				labeledField(
+					f.label,
+					f.options
+						? tray.select("", { fieldRef: refs[f.key], options: f.options, style: controlStyle })
+						: tray.input({ fieldRef: refs[f.key], textarea: f.textarea ?? false, placeholder: "Keep AniList value", style: f.textarea ? { ...controlStyle, resize: "none" } : controlStyle }),
+				),
 			);
 
-			return tray.stack(
+			const banner = tray.div([], {
+				className: "absolute h-40 rounded-t-xl bg-center bg-cover pointer-events-none",
+				style: {
+					top: "-0.75rem",
+					left: "-0.75rem",
+					width: "calc(100% + 1.5rem)",
+					backgroundImage: `url(${media.banner})`,
+					maskImage: "linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, transparent 100%)",
+				},
+			});
+
+			const content = tray.stack(
 				[
-					tray.text(media.title, { className: "font-bold text-lg" }),
-					tray.div(inputs, { className: "space-y-2 overflow-y-auto", style: { maxHeight: "28rem" } }),
+					tray.div(
+						[
+							tray.text("Custom Anime Metadata for", { className: "text-sm" }),
+							tray.text(media.title, { className: "font-bold text-xl line-clamp-2 break-normal text-pretty leading-tight" }),
+						],
+						{ className: "space-y-1 font-semibold h-20" },
+					),
+					tray.div(fields, { className: "space-y-2 overflow-y-auto", style: { height: "24rem" } }),
 					tray.flex(
 						[
 							tray.button("Reset", {
 								intent: "alert",
+								size: "md",
 								onClick: ctx.eventHandler("reset", () => {
 									persist(media.id, null);
 									fill({});
@@ -235,6 +268,7 @@ function init() {
 							}),
 							tray.button("Save", {
 								intent: "primary",
+								size: "md",
 								onClick: ctx.eventHandler("save", () => {
 									try {
 										persist(media.id, readForm());
@@ -249,14 +283,16 @@ function init() {
 						{ className: "justify-end" },
 					),
 				],
-				{ className: "p-2" },
+				{ className: "p-2 space-y-2" },
 			);
+
+			return tray.div([banner, tray.div([content], { style: { position: "relative" } })], { style: { position: "relative" } });
 		});
 
 		const button = ctx.action.newAnimePageButton({ label: "Edit Metadata" });
 		button.mount();
 		button.onClick(({ media }) => {
-			current.set({ id: media.id, title: media.title?.userPreferred ?? `Anime ${media.id}` });
+			current.set({ id: media.id, title: media.title?.userPreferred ?? `Anime ${media.id}`, banner: media.bannerImage ?? "" });
 			fill($shared.use<OverrideStore>("overrides").load()[media.id] ?? {});
 			tray.open();
 		});
