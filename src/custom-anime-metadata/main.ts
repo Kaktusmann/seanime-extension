@@ -153,7 +153,7 @@ function init() {
 		const DATE_PATTERN = /^\d{4}-(0?[1-9]|1[0-2])-(0?[1-9]|[12]\d|3[01])$/;
 		const choices = (values: string[]) => [{ label: "Default", value: "" }, ...values.map((v) => ({ label: v, value: v }))];
 
-		const FIELDS: { key: FieldKey; label: string; textarea?: boolean; options?: ReturnType<typeof choices>; numeric?: boolean; date?: boolean }[] = [
+		const FIELDS: { key: FieldKey; label: string; textarea?: boolean; options?: ReturnType<typeof choices>; numeric?: boolean; date?: boolean; hint?: string }[] = [
 			{ key: "titleRomaji", label: "Title (Romaji)" },
 			{ key: "titleEnglish", label: "Title (English)" },
 			{ key: "titleNative", label: "Title (Native)" },
@@ -166,12 +166,12 @@ function init() {
 			{ key: "seasonYear", label: "Season year", numeric: true },
 			{ key: "episodes", label: "Total episodes", numeric: true },
 			{ key: "airedEpisodes", label: "Aired episodes", numeric: true },
-			{ key: "duration", label: "Duration (minutes)", numeric: true },
-			{ key: "meanScore", label: "Mean score (0-100)", numeric: true },
-			{ key: "startDate", label: "Start date (yyyy-mm-dd)", date: true },
-			{ key: "endDate", label: "End date (yyyy-mm-dd)", date: true },
-			{ key: "genres", label: "Genres (comma separated)" },
-			{ key: "synonyms", label: "Synonyms (comma separated)" },
+			{ key: "duration", label: "Duration", numeric: true, hint: "Minutes per episode" },
+			{ key: "meanScore", label: "Mean score", numeric: true, hint: "0-100" },
+			{ key: "startDate", label: "Start date", date: true, hint: "yyyy-mm-dd" },
+			{ key: "endDate", label: "End date", date: true, hint: "yyyy-mm-dd" },
+			{ key: "genres", label: "Genres", hint: "Comma separated" },
+			{ key: "synonyms", label: "Synonyms", hint: "Comma separated" },
 		];
 
 		const store = $shared.use<OverrideStore>("overrides");
@@ -229,7 +229,7 @@ function init() {
 					f.label,
 					f.options
 						? tray.select("", { fieldRef: refs[f.key], options: f.options, style: controlStyle })
-						: tray.input({ fieldRef: refs[f.key], textarea: f.textarea ?? false, placeholder: "Keep AniList value", style: f.textarea ? { ...controlStyle, resize: "none" } : controlStyle }),
+						: tray.input({ fieldRef: refs[f.key], textarea: f.textarea ?? false, placeholder: f.hint ?? "Keep AniList value", style: f.textarea ? { ...controlStyle, resize: "none" } : controlStyle }),
 				),
 			);
 
