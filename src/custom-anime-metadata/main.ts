@@ -6,7 +6,8 @@
 type FieldKey =
 	| "titleRomaji" | "titleEnglish" | "titleNative" | "description" | "coverImage" | "bannerImage"
 	| "format" | "status" | "season" | "seasonYear" | "episodes" | "airedEpisodes" | "duration"
-	| "meanScore" | "startDate" | "endDate" | "genres" | "synonyms";
+	| "meanScore" | "startDate" | "endDate" | "genres" | "synonyms"
+	| "anidbId" | "animapAnilistId";
 
 // Raw form values; a missing key means "keep the AniList value".
 type Override = Partial<Record<FieldKey, string>>;
@@ -14,6 +15,7 @@ type Override = Partial<Record<FieldKey, string>>;
 type OverrideStore = {
 	load(): Record<number, Override>;
 	save(mediaId: number, override: Override | null): void;
+	progressOffset(mediaId: number): number;
 	applyToAnime(media: $app.AL_BaseAnime | undefined): void;
 	applyToCollection(collection: $app.AL_AnimeCollection | undefined): void;
 	applyToMetadata(mediaId: number, metadata: $app.Metadata_AnimeMetadata | undefined): void;
@@ -28,10 +30,21 @@ function init() {
 			const all = load();
 			if (override && Object.keys(override).length) all[mediaId] = override;
 			else delete all[mediaId];
+			delete airedByMedia[mediaId];
 			$storage.set(key, all);
 		};
 
 		const WEEK_SECONDS = 7 * 24 * 60 * 60;
+
+		// "+1" / "-3" shift the AniList aired count; a plain number replaces it.
+		const isOffset = (value: string) => /^[+-]/.test(value);
+		const airedByMedia: Record<number, number> = {};
+
+		// Seanime ep N is tracked as AniList ep N - offset, so watching ep 5 with "+1" records 4.
+		const progressOffset = (mediaId: number) => {
+			const aired = load()[mediaId]?.airedEpisodes;
+			return aired && isOffset(aired) ? Number(aired) : 0;
+		};
 
 		const splitList = (value: string) => value.split(",").map((s) => s.trim()).filter(Boolean);
 
@@ -70,7 +83,13 @@ function init() {
 
 			if (!o.airedEpisodes) return;
 			// Seanime derives the aired count from nextAiringEpisode, falling back to the total episode count.
-			const aired = Number(o.airedEpisodes);
+			const next = media.nextAiringEpisode;
+			// Cached objects are mutated in place, so an offset must not be applied on top of our own synthetic airing time.
+			const alreadyApplied = next?.timeUntilAiring === WEEK_SECONDS;
+			const anilistAired = next ? next.episode - 1 : media.episodes ?? 0;
+			const aired = alreadyApplied ? anilistAired : Math.max(0, isOffset(o.airedEpisodes) ? anilistAired + Number(o.airedEpisodes) : Number(o.airedEpisodes));
+			airedByMedia[media.id] = aired;
+			if (alreadyApplied) return;
 			if (media.episodes && aired >= media.episodes) {
 				media.nextAiringEpisode = undefined;
 				return;
@@ -100,8 +119,13 @@ function init() {
 
 		// Streaming views list episodes from AniDB metadata, so episodes AniDB doesn't know yet must be added.
 		const applyToMetadata = (mediaId: number, metadata: $app.Metadata_AnimeMetadata | undefined) => {
-			const aired = Number(load()[mediaId]?.airedEpisodes);
-			if (!metadata || !aired) return;
+			const override = load()[mediaId];
+			if (!metadata || !override) return;
+
+			if (override.anidbId) (metadata.mappings ?? (metadata.mappings = {})).anidbId = Number(override.anidbId);
+
+			const aired = airedByMedia[mediaId] ?? (override.airedEpisodes && !isOffset(override.airedEpisodes) ? Number(override.airedEpisodes) : 0);
+			if (!aired) return;
 			const episodes = metadata.episodes ?? (metadata.episodes = {});
 			for (let n = 1; n <= aired; n++) {
 				if (episodes[n]) continue;
@@ -113,7 +137,7 @@ function init() {
 			metadata.episodeCount = Math.max(metadata.episodeCount, aired);
 		};
 
-		return { load, save, applyToAnime, applyToCollection, applyToMetadata };
+		return { load, save, progressOffset, applyToAnime, applyToCollection, applyToMetadata };
 	});
 
 	$app.onGetAnime((e) => {
@@ -138,6 +162,33 @@ function init() {
 		e.next();
 	});
 
+	$app.onPreUpdateEntryProgress((e) => {
+		const offset = e.mediaId ? $shared.use<OverrideStore>("overrides").progressOffset(e.mediaId) : 0;
+		if (!offset || e.progress === undefined) return e.next();
+
+		let progress = e.progress - offset;
+		if (progress < 1) return e.preventDefault();
+		// A negative offset can push past the end; without a total override totalCount is the real AniList total.
+		const overrides = $shared.use<OverrideStore>("overrides").load();
+		if (e.totalCount && !overrides[e.mediaId!]?.episodes) progress = Math.min(progress, e.totalCount);
+		e.progress = progress;
+		// Seanime picked COMPLETED from the unshifted progress.
+		if (e.status === "COMPLETED" && e.totalCount && progress < e.totalCount) e.status = "CURRENT";
+		e.next();
+	});
+
+	// Episode metadata comes from Animap keyed by AniList ID; look it up by the overridden Animap AniList or AniDB ID instead.
+	$app.onAnimapMediaRequested((e) => {
+		const override = e.from === "anilist" ? $shared.use<OverrideStore>("overrides").load()[e.id] : undefined;
+		if (override?.animapAnilistId) {
+			e.id = Number(override.animapAnilistId);
+		} else if (override?.anidbId) {
+			e.from = "anidb";
+			e.id = Number(override.anidbId);
+		}
+		e.next();
+	});
+
 	$app.onAnimeMetadata((e) => {
 		$shared.use<OverrideStore>("overrides").applyToMetadata(e.mediaId, e.animeMetadata);
 		e.next();
@@ -149,11 +200,27 @@ function init() {
 		e.next();
 	});
 
+	// Schedule items are built from AniList airing schedules, which ignore the overridden total episode count.
+	$app.onAnimeScheduleItems((e) => {
+		const store = $shared.use<OverrideStore>("overrides");
+		const overrides = store.load();
+		e.items = e.items?.filter((item) => {
+			// Shift AniList numbering to match the aired-episodes offset.
+			item.episodeNumber += store.progressOffset(item.mediaId);
+			if (item.episodeNumber < 1) return false;
+			const total = Number(overrides[item.mediaId]?.episodes);
+			if (!total) return true;
+			item.isSeasonFinale = item.episodeNumber === total;
+			return item.episodeNumber <= total;
+		});
+		e.next();
+	});
+
 	$ui.register((ctx) => {
 		const DATE_PATTERN = /^\d{4}-(0?[1-9]|1[0-2])-(0?[1-9]|[12]\d|3[01])$/;
 		const choices = (values: string[]) => [{ label: "Default", value: "" }, ...values.map((v) => ({ label: v, value: v }))];
 
-		const FIELDS: { key: FieldKey; label: string; textarea?: boolean; options?: ReturnType<typeof choices>; numeric?: boolean; date?: boolean; hint?: string }[] = [
+		const FIELDS: { key: FieldKey; label: string; textarea?: boolean; options?: ReturnType<typeof choices>; numeric?: boolean; signed?: boolean; date?: boolean; hint?: string }[] = [
 			{ key: "titleRomaji", label: "Title (Romaji)" },
 			{ key: "titleEnglish", label: "Title (English)" },
 			{ key: "titleNative", label: "Title (Native)" },
@@ -165,13 +232,15 @@ function init() {
 			{ key: "season", label: "Season", options: choices(["WINTER", "SPRING", "SUMMER", "FALL"]) },
 			{ key: "seasonYear", label: "Season year", numeric: true },
 			{ key: "episodes", label: "Total episodes", numeric: true },
-			{ key: "airedEpisodes", label: "Aired episodes", numeric: true },
+			{ key: "airedEpisodes", label: "Aired episodes", numeric: true, signed: true, hint: "12, or +1 / -3 to offset AniList" },
 			{ key: "duration", label: "Duration", numeric: true, hint: "Minutes per episode" },
 			{ key: "meanScore", label: "Mean score", numeric: true, hint: "0-100" },
 			{ key: "startDate", label: "Start date", date: true, hint: "yyyy-mm-dd" },
 			{ key: "endDate", label: "End date", date: true, hint: "yyyy-mm-dd" },
 			{ key: "genres", label: "Genres", hint: "Comma separated" },
 			{ key: "synonyms", label: "Synonyms", hint: "Comma separated" },
+			{ key: "animapAnilistId", label: "Animap AniList ID", numeric: true, hint: "Load episodes from another anime" },
+			{ key: "anidbId", label: "AniDB ID", numeric: true },
 		];
 
 		const store = $shared.use<OverrideStore>("overrides");
@@ -188,7 +257,9 @@ function init() {
 			for (const field of FIELDS) {
 				const value = refs[field.key].current.trim();
 				if (!value) continue;
-				if (field.numeric && !/^\d+$/.test(value)) throw new Error(`${field.label} must be a whole number`);
+				if (field.numeric && !(field.signed ? /^[+-]?\d+$/ : /^\d+$/).test(value)) {
+					throw new Error(`${field.label} must be a whole number${field.signed ? ", optionally prefixed with + or - for an offset" : ""}`);
+				}
 				if (field.date && !DATE_PATTERN.test(value)) throw new Error(`${field.label} must follow yyyy-mm-dd`);
 				override[field.key] = value;
 			}
@@ -200,6 +271,7 @@ function init() {
 			$anilist.clearCache();
 			$anilist.refreshAnimeCollection();
 			ctx.anime.clearEpisodeMetadataCache();
+			ctx.anime.clearScheduleCache();
 			$app.invalidateClientQuery(["ANIME-ENTRIES-get-anime-entry", "ANIME-get-anime-episode-collection"]);
 		}
 
@@ -289,12 +361,17 @@ function init() {
 			return tray.div([banner, tray.div([content], { style: { position: "relative" } })], { style: { position: "relative" } });
 		});
 
-		const button = ctx.action.newAnimePageButton({ label: "Edit Metadata" });
-		button.mount();
-		button.onClick(({ media }) => {
+		const inMenu = $getUserPreference("buttonLocation") === "menu";
+		const action = inMenu
+			? ctx.action.newAnimePageDropdownItem({ label: "Edit Metadata" })
+			: ctx.action.newAnimePageButton({ label: "Edit Metadata" });
+		action.mount();
+		action.onClick(({ media }) => {
 			current.set({ id: media.id, title: media.title?.userPreferred ?? `Anime ${media.id}`, banner: media.bannerImage ?? "" });
 			fill($shared.use<OverrideStore>("overrides").load()[media.id] ?? {});
-			tray.open();
+			// The dropdown closing dismisses a tray opened in the same tick.
+			if (inMenu) ctx.setTimeout(() => tray.open(), 500);
+			else tray.open();
 		});
 	});
 }
