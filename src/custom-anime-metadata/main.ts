@@ -175,7 +175,7 @@ function init() {
 		];
 
 		const store = $shared.use<OverrideStore>("overrides");
-		const tray = ctx.newTray({ iconUrl: "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/DebridToggle/icon.ico", withContent: true, width: "32rem" });
+		const tray = ctx.newTray({ iconUrl: "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/custom-anime-metadata/icon.ico", withContent: true, width: "32rem" });
 		const current = ctx.state<{ id: number; title: string } | null>(null);
 		const refs = Object.fromEntries(FIELDS.map((f) => [f.key, ctx.fieldRef<string>("")])) as Record<FieldKey, ReturnType<typeof ctx.fieldRef<string>>>;
 
