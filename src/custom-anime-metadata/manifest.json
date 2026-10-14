@@ -1,0 +1,20 @@
+{
+  "id": "custom-anime-metadata",
+  "name": "Custom Anime Metadata",
+  "version": "1.0.0",
+  "manifestURI": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/custom-anime-metadata/manifest.json",
+  "language": "typescript",
+  "type": "plugin",
+  "description": "Edit AniList anime metadata",
+  "author": "Kaktus",
+  "icon": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/custom-anime-metadata/icon.ico",
+  "website": "",
+  "lang": "en",
+  "payloadURI": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/custom-anime-metadata/main.ts",
+  "plugin": {
+    "version": "1",
+    "permissions": {
+      "scopes": ["storage", "anilist"]
+    }
+  }
+}
