@@ -20,7 +20,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000
 
 function init() {
     $ui.register((ctx) => {
-        const mediaId = ctx.state(0)
+        const currentEntry = ctx.state<{ id: number, type: MediaType } | null>(null)
         const mediaType = ctx.state<MediaType | null>(null)
         const friends = ctx.state<FriendListEntry[]>([])
 
@@ -36,7 +36,6 @@ function init() {
             autoHeight: true,
         })
 
-        // Both panels share the same state and content - only the slot differs.
         animePanel.channel.sync("friends", friends)
         animePanel.channel.sync("mediaType", mediaType)
         mangaPanel.channel.sync("friends", friends)
@@ -70,28 +69,27 @@ function init() {
 
         ctx.screen.onNavigate((e) => {
             if (e.pathname === "/entry" && !!e.searchParams.id) {
-                mediaType.set("anime")
-                mediaId.set(parseInt(e.searchParams.id))
+                currentEntry.set({ id: parseInt(e.searchParams.id), type: "anime" })
             } else if (e.pathname.startsWith("/manga/entry") && !!e.searchParams.id) {
-                mediaType.set("manga")
-                mediaId.set(parseInt(e.searchParams.id))
-            } else {
-                mediaType.set(null)
-                mediaId.set(0)
+                currentEntry.set({ id: parseInt(e.searchParams.id), type: "manga" })
+            } else if (currentEntry.get()) {
+                currentEntry.set(null)
             }
         })
         ctx.screen.loadCurrent()
 
         ctx.effect(() => {
-            const id = mediaId.get()
-            const type = mediaType.get()
-            if (!id || !type) {
+            const entry = currentEntry.get()
+            if (!entry) {
+                mediaType.set(null)
                 friends.set([])
                 animePanel.hide()
                 mangaPanel.hide()
                 return
             }
 
+            const { id, type } = entry
+            mediaType.set(type)
             const panel = type === "anime" ? animePanel : mangaPanel
 
             const entries = ctx.cache.getOrSet(`friends-${id}`, () => {
@@ -137,7 +135,7 @@ function init() {
             } else {
                 panel.hide()
             }
-        }, [mediaId, mediaType])
+        }, [currentEntry])
 
         const panelContent = () => `
 <!DOCTYPE html>
