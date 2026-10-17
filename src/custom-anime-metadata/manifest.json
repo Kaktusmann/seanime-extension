@@ -1,7 +1,7 @@
 {
   "id": "custom-anime-metadata",
   "name": "Custom Anime Metadata",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "manifestURI": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/custom-anime-metadata/manifest.json",
   "language": "typescript",
   "type": "plugin",

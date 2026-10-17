@@ -17,7 +17,7 @@ type OverrideStore = {
 	save(mediaId: number, override: Override | null): void;
 	progressOffset(mediaId: number): number;
 	trackedOffset(mediaId: number): number;
-	forgetShiftedProgress(mediaId: number): void;
+	shiftListData(mediaId: number, listData: $app.Anime_EntryListData | undefined): boolean;
 	applyToAnime(media: $app.AL_BaseAnime | undefined): void;
 	applyToCollection(collection: $app.AL_AnimeCollection | undefined): void;
 	applyToMetadata(mediaId: number, metadata: $app.Metadata_AnimeMetadata | undefined): void;
@@ -33,7 +33,6 @@ function init() {
 			if (override && Object.keys(override).length) all[mediaId] = override;
 			else delete all[mediaId];
 			delete airedByMedia[mediaId];
-			delete shiftedProgress[mediaId];
 			$storage.set(key, all);
 		};
 
@@ -42,10 +41,6 @@ function init() {
 		// "+1" / "-3" shift the AniList aired count; a plain number replaces it.
 		const isOffset = (value: string) => /^[+-]/.test(value);
 		const airedByMedia: Record<number, number> = {};
-
-		// Progress we already shifted on the cached entry; collection objects are mutated in place, so this keeps the shift from stacking.
-		// Cleared whenever AniList progress is about to change, since the refetched value could otherwise equal it.
-		const shiftedProgress: Record<number, number> = {};
 
 		// Seanime ep N is tracked as AniList ep N - offset, so watching ep 5 with "+1" records 4.
 		const progressOffset = (mediaId: number) => {
@@ -112,13 +107,13 @@ function init() {
 		}
 
 		// AniList stores N - offset, so show N in Seanime and the next episode to watch follows.
-		function shiftProgress(entry: $app.AL_AnimeCollection_MediaListCollection_Lists_Entries, o: Override) {
-			const mediaId = entry.media!.id;
+		// Applied to list data built per request: the cached collection is mutated in place, so shifting it would stack on every load.
+		const shiftListData = (mediaId: number, listData: $app.Anime_EntryListData | undefined) => {
 			const offset = trackedOffset(mediaId);
-			if (!offset || entry.progress === undefined || entry.progress === shiftedProgress[mediaId]) return;
-			entry.progress = Math.max(0, entry.progress + offset);
-			shiftedProgress[mediaId] = entry.progress;
-		}
+			if (!offset || !listData?.progress) return false;
+			listData.progress = Math.max(0, listData.progress + offset);
+			return true;
+		};
 
 		function applyToCollection(collection: $app.AL_AnimeCollection | undefined) {
 			if (!collection) return;
@@ -126,9 +121,7 @@ function init() {
 			for (const list of collection.MediaListCollection?.lists ?? []) {
 				for (const entry of list.entries ?? []) {
 					const override = entry.media && overrides[entry.media.id];
-					if (!override) continue;
-					applyOverride(entry.media!, override);
-					shiftProgress(entry, override);
+					if (override) applyOverride(entry.media!, override);
 				}
 			}
 		}
@@ -158,9 +151,7 @@ function init() {
 			metadata.episodeCount = Math.max(metadata.episodeCount, aired);
 		};
 
-		const forgetShiftedProgress = (mediaId: number) => void delete shiftedProgress[mediaId];
-
-		return { load, save, progressOffset, trackedOffset, forgetShiftedProgress, applyToAnime, applyToCollection, applyToMetadata };
+		return { load, save, progressOffset, trackedOffset, shiftListData, applyToAnime, applyToCollection, applyToMetadata };
 	});
 
 	$app.onGetAnime((e) => {
@@ -188,7 +179,6 @@ function init() {
 	$app.onPreUpdateEntryProgress((e) => {
 		const offset = e.mediaId ? $shared.use<OverrideStore>("overrides").trackedOffset(e.mediaId) : 0;
 		if (!offset || e.progress === undefined) return e.next();
-		$shared.use<OverrideStore>("overrides").forgetShiftedProgress(e.mediaId!);
 
 		let progress = e.progress - offset;
 		if (progress < 1) return e.preventDefault();
@@ -198,6 +188,24 @@ function init() {
 		e.progress = progress;
 		// Seanime picked COMPLETED from the unshifted progress.
 		if (e.status === "COMPLETED" && e.totalCount && progress < e.totalCount) e.status = "CURRENT";
+		e.next();
+	});
+
+	$app.onAnimeEntry((e) => {
+		const entry = e.entry;
+		// Seanime picked the next episode from the unshifted progress.
+		if (entry?.listData && $shared.use<OverrideStore>("overrides").shiftListData(entry.mediaId, entry.listData)) {
+			const next = entry.listData.progress! + 1;
+			entry.nextEpisode = entry.episodes?.find((ep) => ep.progressNumber === next && ep.isDownloaded);
+		}
+		e.next();
+	});
+
+	$app.onAnimeLibraryCollection((e) => {
+		const store = $shared.use<OverrideStore>("overrides");
+		for (const list of e.libraryCollection?.lists ?? []) {
+			for (const entry of list.entries ?? []) store.shiftListData(entry.mediaId, entry.listData);
+		}
 		e.next();
 	});
 
