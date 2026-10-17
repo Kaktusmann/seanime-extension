@@ -257,7 +257,7 @@ function init() {
 			{ key: "seasonYear", label: "Season year", numeric: true },
 			{ key: "episodes", label: "Total episodes", numeric: true },
 			{ key: "airedEpisodes", label: "Aired episodes", numeric: true, signed: true, hint: "12, or +1 / -3 to offset AniList" },
-			{ key: "offsetProgress", label: "Offset AniList progress", options: [{ label: "On", value: "" }, { label: "Off", value: "off" }] },
+			{ key: "offsetProgress", label: "Offset progress", options: [{ label: "On", value: "" }, { label: "Off", value: "off" }] },
 			{ key: "duration", label: "Duration", numeric: true, hint: "Minutes per episode" },
 			{ key: "meanScore", label: "Mean score", numeric: true, hint: "0-100" },
 			{ key: "startDate", label: "Start date", date: true, hint: "yyyy-mm-dd" },
