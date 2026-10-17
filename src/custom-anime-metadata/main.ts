@@ -7,7 +7,7 @@ type FieldKey =
 	| "titleRomaji" | "titleEnglish" | "titleNative" | "description" | "coverImage" | "bannerImage"
 	| "format" | "status" | "season" | "seasonYear" | "episodes" | "airedEpisodes" | "duration"
 	| "meanScore" | "startDate" | "endDate" | "genres" | "synonyms"
-	| "anidbId" | "animapAnilistId";
+	| "anidbId" | "animapAnilistId" | "offsetProgress";
 
 // Raw form values; a missing key means "keep the AniList value".
 type Override = Partial<Record<FieldKey, string>>;
@@ -16,6 +16,7 @@ type OverrideStore = {
 	load(): Record<number, Override>;
 	save(mediaId: number, override: Override | null): void;
 	progressOffset(mediaId: number): number;
+	trackedOffset(mediaId: number): number;
 	forgetShiftedProgress(mediaId: number): void;
 	applyToAnime(media: $app.AL_BaseAnime | undefined): void;
 	applyToCollection(collection: $app.AL_AnimeCollection | undefined): void;
@@ -51,6 +52,9 @@ function init() {
 			const aired = load()[mediaId]?.airedEpisodes;
 			return aired && isOffset(aired) ? Number(aired) : 0;
 		};
+
+		// "off" keeps the aired/schedule offset but leaves AniList progress untouched.
+		const trackedOffset = (mediaId: number) => (load()[mediaId]?.offsetProgress === "off" ? 0 : progressOffset(mediaId));
 
 		const splitList = (value: string) => value.split(",").map((s) => s.trim()).filter(Boolean);
 
@@ -107,9 +111,10 @@ function init() {
 			};
 		}
 
+		// AniList stores N - offset, so show N in Seanime and the next episode to watch follows.
 		function shiftProgress(entry: $app.AL_AnimeCollection_MediaListCollection_Lists_Entries, o: Override) {
-			const offset = o.airedEpisodes && isOffset(o.airedEpisodes) ? Number(o.airedEpisodes) : 0;
 			const mediaId = entry.media!.id;
+			const offset = trackedOffset(mediaId);
 			if (!offset || entry.progress === undefined || entry.progress === shiftedProgress[mediaId]) return;
 			entry.progress = Math.max(0, entry.progress + offset);
 			shiftedProgress[mediaId] = entry.progress;
@@ -155,7 +160,7 @@ function init() {
 
 		const forgetShiftedProgress = (mediaId: number) => void delete shiftedProgress[mediaId];
 
-		return { load, save, progressOffset, forgetShiftedProgress, applyToAnime, applyToCollection, applyToMetadata };
+		return { load, save, progressOffset, trackedOffset, forgetShiftedProgress, applyToAnime, applyToCollection, applyToMetadata };
 	});
 
 	$app.onGetAnime((e) => {
@@ -181,7 +186,7 @@ function init() {
 	});
 
 	$app.onPreUpdateEntryProgress((e) => {
-		const offset = e.mediaId ? $shared.use<OverrideStore>("overrides").progressOffset(e.mediaId) : 0;
+		const offset = e.mediaId ? $shared.use<OverrideStore>("overrides").trackedOffset(e.mediaId) : 0;
 		if (!offset || e.progress === undefined) return e.next();
 		$shared.use<OverrideStore>("overrides").forgetShiftedProgress(e.mediaId!);
 
@@ -252,6 +257,7 @@ function init() {
 			{ key: "seasonYear", label: "Season year", numeric: true },
 			{ key: "episodes", label: "Total episodes", numeric: true },
 			{ key: "airedEpisodes", label: "Aired episodes", numeric: true, signed: true, hint: "12, or +1 / -3 to offset AniList" },
+			{ key: "offsetProgress", label: "Offset AniList progress", options: [{ label: "On", value: "" }, { label: "Off", value: "off" }] },
 			{ key: "duration", label: "Duration", numeric: true, hint: "Minutes per episode" },
 			{ key: "meanScore", label: "Mean score", numeric: true, hint: "0-100" },
 			{ key: "startDate", label: "Start date", date: true, hint: "yyyy-mm-dd" },
