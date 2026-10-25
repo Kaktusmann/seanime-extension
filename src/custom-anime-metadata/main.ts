@@ -473,5 +473,82 @@ function init() {
 			if (inMenu) ctx.setTimeout(() => tray.open(), 500);
 			else tray.open();
 		});
+
+		// Seanime's calendar marks episodes watched in the browser by comparing raw AniList progress with the offset episode
+		// number, which no hook can reach, so offset episodes are re-marked in the DOM. Only /schedule is patched: the home
+		// screen's global calendar renders the same markup with unshifted AniList numbers.
+		const calendarAttr = (name: string) => `[data-schedule-calendar-${name}]`;
+		// Markup from seanime-web's schedule-calendar.tsx; the "+N more" popover and the day modal reuse these items.
+		const CALENDAR_ITEMS = [
+			{ link: calendarAttr("event-item-link"), episode: calendarAttr("event-item-episode"), text: calendarAttr("event-item-text"), icons: calendarAttr("event-item-text"), checkBefore: calendarAttr("event-item-name") },
+			{ link: calendarAttr("event-list-item-more-link"), episode: calendarAttr("event-list-item-more-episode"), text: calendarAttr("event-list-item-more-text"), icons: calendarAttr("event-list-item-more-text"), checkBefore: calendarAttr("event-list-item-more-text") },
+			{ link: calendarAttr("mobile-list-day-item-event-link"), episode: calendarAttr("mobile-list-day-item-event-episode"), text: calendarAttr("mobile-list-day-item-event-text"), icons: calendarAttr("mobile-list-day-item-event-icons") },
+		];
+		// Font Awesome's check, the icon Seanime uses for watched episodes.
+		const CHECK_ICON = `<svg class="size-3 text-[--muted]" fill="currentColor" viewBox="0 0 512 512"><path d="M173.898 439.404l-166.4-166.4c-9.997-9.997-9.997-26.206 0-36.204l36.203-36.204c9.997-9.998 26.207-9.998 36.204 0L192 312.69 432.095 72.596c9.997-9.997 26.207-9.997 36.204 0l36.203 36.204c9.997 9.997 9.997 26.206 0 36.204l-294.4 294.401c-9.998 9.997-26.207 9.997-36.204-.001z"></path></svg>`;
+		const CHECK_ATTR = "data-custom-anime-metadata-check";
+
+		function aniListProgress() {
+			const progress = new Map<number, number>();
+			for (const list of $anilist.getAnimeCollection(false)?.MediaListCollection?.lists ?? []) {
+				for (const entry of list.entries ?? []) {
+					if (entry.media) progress.set(entry.media.id, entry.progress ?? 0);
+				}
+			}
+			return progress;
+		}
+
+		async function markCalendarItem(item: (typeof CALENDAR_ITEMS)[number], link: $ui.DOMElement, progress: number, offset: number) {
+			const episode = Number((await (await link.queryOne(item.episode))?.getText())?.match(/\d+/)?.[0]);
+			const watched = progress > 0 && progress + offset >= episode;
+			// Seanime's own check uses the unshifted progress.
+			if (!episode || watched === progress >= episode) return;
+			if (watched && (await link.queryOne(`[${CHECK_ATTR}]`))) return;
+
+			const text = await link.queryOne(item.text);
+			const icons = await link.queryOne(item.icons);
+			if (!text || !icons) return;
+			// Holds the finale flag, which Seanime hides once watched, or Seanime's own check.
+			for (const icon of await icons.query("svg")) icon.setStyle("display", "none");
+			// Seanime 3.10's addClass/removeClass bindings throw on any argument, so the text-[--muted] and
+			// text-gray-100 colors are set inline instead.
+			text.setStyle("color", watched ? "var(--muted)" : "rgb(var(--color-gray-100))");
+			if (!watched) return;
+
+			const check = await ctx.dom.createElement("span");
+			check.setAttribute(CHECK_ATTR, "");
+			check.setInnerHTML(CHECK_ICON);
+			const anchor = item.checkBefore ? await link.queryOne(item.checkBefore) : null;
+			if (anchor) anchor.before(check);
+			else icons.append(check);
+		}
+
+		let pathname = "";
+		// The observer and the refetch below can report the same element at once, and both passes would add a check.
+		const handledLinks = new Set<string>();
+		const calendarObservers = CALENDAR_ITEMS.map((item) =>
+			ctx.dom.observe(item.link, async (links) => {
+				if (pathname !== "/schedule") return;
+				const offsetLinks = links.flatMap((link) => {
+					const mediaId = Number(link.attributes.href?.match(/[?&]id=(\d+)/)?.[1]);
+					const offset = mediaId ? store.trackedOffset(mediaId) : 0;
+					if (!offset || handledLinks.has(link.id)) return [];
+					handledLinks.add(link.id);
+					return [{ link, mediaId, offset }];
+				});
+				if (!offsetLinks.length) return;
+				const progress = aniListProgress();
+				for (const { link, mediaId, offset } of offsetLinks) await markCalendarItem(item, link, progress.get(mediaId) ?? 0, offset);
+			}),
+		);
+		// A cached calendar can render before the navigation is reported, so look at it again once on /schedule.
+		// Element ids restart with each page load, so handled links are only remembered per visit.
+		ctx.screen.onNavigate((event) => {
+			pathname = event.pathname;
+			if (pathname !== "/schedule") return;
+			handledLinks.clear();
+			for (const [, refetch] of calendarObservers) refetch();
+		});
+		ctx.screen.loadCurrent();
 	});
 }
