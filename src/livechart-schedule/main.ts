@@ -76,7 +76,7 @@ function init() {
                 if (dub) return dub
                 if (info) info.dubFallback = true
             }
-            const subCandidates = nonJp.filter(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
+            const subCandidates = nonJp.filter(s => s.tracks.some(t => t.category === "TEXTUAL"))
             // LiveChart's releaseSchedules aren't returned in any meaningful
             // order, so blindly taking the first "sub" match is arbitrary and
             // can land on a regional pickup (e.g. Muse Asia, BiliBili) with
@@ -186,7 +186,7 @@ function init() {
                 if (dub) return dub
                 if (info) info.dubFallback = true
             }
-            const subCandidates = nonJp.filter(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
+            const subCandidates = nonJp.filter(s => s.tracks.some(t => t.category === "TEXTUAL"))
             // LiveChart's releaseSchedules aren't returned in any meaningful
             // order, so blindly taking the first "sub" match is arbitrary and
             // can land on a regional pickup (e.g. Muse Asia, BiliBili) with
@@ -308,7 +308,7 @@ function init() {
                 if (dub) return dub
                 if (info) info.dubFallback = true
             }
-            const subCandidates = nonJp.filter(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
+            const subCandidates = nonJp.filter(s => s.tracks.some(t => t.category === "TEXTUAL"))
             // LiveChart's releaseSchedules aren't returned in any meaningful
             // order, so blindly taking the first "sub" match is arbitrary and
             // can land on a regional pickup (e.g. Muse Asia, BiliBili) with
@@ -418,7 +418,7 @@ function init() {
                 if (dub) return dub
                 if (info) info.dubFallback = true
             }
-            const subCandidates = nonJp.filter(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
+            const subCandidates = nonJp.filter(s => s.tracks.some(t => t.category === "TEXTUAL"))
             // LiveChart's releaseSchedules aren't returned in any meaningful
             // order, so blindly taking the first "sub" match is arbitrary and
             // can land on a regional pickup (e.g. Muse Asia, BiliBili) with
@@ -527,6 +527,7 @@ function init() {
         const MAPPING_TTL_MISS = 3 * 24 * 60 * 60 * 1000
         const SCHEDULES_TTL = 20 * 60 * 1000
         const WARM_TICK_MS = 1500
+        const WARM_BATCH_SIZE = 10
         const WARM_QUEUE_REBUILD_MS = 10 * 60 * 1000
         const WARM_REFRESH_THROTTLE_MS = 5000
         const DEFAULT_OVERRIDE_VALUE = "__use_global_default__"
@@ -557,11 +558,27 @@ function init() {
             "User-Agent": "me.livechart.android/7.7.2 (Linux; Android 16 SDK 36; Google Pixel 8 Pro)",
         }
 
-        const LC_LOOKUP_BATCH_SIZE = 100
+        const LC_ANILIST_LOOKUP_QUERY = `query($anilistId: BigInt!) {
+            anime(anilistId_in: [$anilistId], first: 1) {
+                nodes { databaseId }
+            }
+        }`
 
-        const LC_ANILIST_LOOKUP_QUERY = `query($anilistIds: [BigInt!], $first: Int) {
+        // No titles here: that keeps 10 anime x 30 schedules under LiveChart's 10k query complexity limit.
+        const LC_SCHEDULE_TIMES_QUERY = `query($anilistIds: [BigInt!], $first: Int) {
             anime(anilistId_in: $anilistIds, first: $first) {
-                nodes { databaseId anilistUrl }
+                nodes {
+                    databaseId
+                    anilistUrl
+                    releaseSchedules(first: 30) {
+                        nodes {
+                            databaseId
+                            network { name }
+                            tracks { languageCode category }
+                            releaseState { nextRelease { date numberRange { minNumber } } }
+                        }
+                    }
+                }
             }
         }`
 
@@ -601,11 +618,12 @@ function init() {
             writeMapping(mapping)
         }
 
-        function readSchedulesCache(): Record<string, { fetchedAt: number; schedules: LcSchedule[] }> {
-            return $storage.get<Record<string, { fetchedAt: number; schedules: LcSchedule[] }>>(SCHEDULES_KEY) || {}
+        // detailed: schedules carry titles (needed for tray labels); the batch warm-up fetch omits them.
+        function readSchedulesCache(): Record<string, { fetchedAt: number; schedules: LcSchedule[]; detailed?: boolean }> {
+            return $storage.get<Record<string, { fetchedAt: number; schedules: LcSchedule[]; detailed?: boolean }>>(SCHEDULES_KEY) || {}
         }
 
-        function writeSchedulesCache(c: Record<string, { fetchedAt: number; schedules: LcSchedule[] }>) {
+        function writeSchedulesCache(c: Record<string, { fetchedAt: number; schedules: LcSchedule[]; detailed?: boolean }>) {
             $storage.set(SCHEDULES_KEY, c)
         }
 
@@ -676,7 +694,7 @@ function init() {
                 if (dub) return dub
                 if (info) info.dubFallback = true
             }
-            const subCandidates = nonJp.filter(s => /sub/i.test(s.shortTitle) || /sub/i.test(s.title))
+            const subCandidates = nonJp.filter(s => s.tracks.some(t => t.category === "TEXTUAL"))
             // LiveChart's releaseSchedules aren't returned in any meaningful
             // order, so blindly taking the first "sub" match is arbitrary and
             // can land on a regional pickup (e.g. Muse Asia, BiliBili) with
@@ -731,57 +749,88 @@ function init() {
             return body.data
         }
 
-        async function resolveLcAnimeIds(mediaIds: number[], forceRefresh: boolean) {
-            const mapping = readMapping()
-            const now = Date.now()
-            const stale = mediaIds.filter(id => {
-                const cached = mapping[String(id)]
-                if (!cached) return true
-                if (cached.manual) return false
-                if (forceRefresh) return true
-                return now - cached.checkedAt >= (cached.id ? MAPPING_TTL_HIT : MAPPING_TTL_MISS)
-            })
-
-            for (let i = 0; i < stale.length; i += LC_LOOKUP_BATCH_SIZE) {
-                const batch = stale.slice(i, i + LC_LOOKUP_BATCH_SIZE)
-                const data = await lcQuery<{ anime?: { nodes?: { databaseId: string; anilistUrl?: string }[] } }>(
-                    LC_ANILIST_LOOKUP_QUERY,
-                    { anilistIds: batch, first: batch.length },
-                )
-                const lcIdByMediaId: Record<number, string> = {}
-                for (const node of (data.anime && data.anime.nodes) || []) {
-                    const mediaId = node.anilistUrl ? extractAnilistId(node.anilistUrl) : null
-                    if (mediaId != null) lcIdByMediaId[mediaId] = String(node.databaseId)
-                }
-                for (const id of batch) mapping[String(id)] = { id: lcIdByMediaId[id] ?? null, checkedAt: now }
-                writeMapping(mapping)
-            }
-            return mapping
-        }
-
         async function discoverLcAnimeId(mediaId: number, forceRefresh: boolean): Promise<string | null> {
-            const mapping = await resolveLcAnimeIds([mediaId], forceRefresh)
-            const entry = mapping[String(mediaId)]
-            return entry ? entry.id : null
+            const mapping = readMapping()
+            const key = String(mediaId)
+            const cached = mapping[key]
+            const now = Date.now()
+            if (cached && cached.manual) return cached.id
+            if (!forceRefresh && cached && now - cached.checkedAt < (cached.id ? MAPPING_TTL_HIT : MAPPING_TTL_MISS)) return cached.id
+
+            const data = await lcQuery<{ anime?: { nodes?: { databaseId: string }[] } }>(LC_ANILIST_LOOKUP_QUERY, { anilistId: mediaId })
+            const node = data.anime && data.anime.nodes && data.anime.nodes[0]
+            const found = node ? String(node.databaseId) : null
+            mapping[key] = { id: found, checkedAt: now }
+            writeMapping(mapping)
+            return found
         }
 
-        async function refreshLcSchedules(lcId: string, forceRefresh: boolean): Promise<LcSchedule[]> {
+        async function refreshLcSchedules(lcId: string, forceRefresh: boolean, requireDetails: boolean = false): Promise<LcSchedule[]> {
             const cacheAll = readSchedulesCache()
             const cached = cacheAll[lcId]
             const now = Date.now()
-            if (!forceRefresh && cached && now - cached.fetchedAt < SCHEDULES_TTL) return cached.schedules
+            if (!forceRefresh && cached && now - cached.fetchedAt < SCHEDULES_TTL && (!requireDetails || cached.detailed)) return cached.schedules
 
             try {
                 const data = await lcQuery<{ singleAnime?: { releaseSchedules?: { nodes?: any[] } } }>(LC_SCHEDULES_QUERY, { id: lcId })
                 const nodes = (data.singleAnime && data.singleAnime.releaseSchedules && data.singleAnime.releaseSchedules.nodes) || []
                 const schedules = parseSchedules(nodes)
-                cacheAll[lcId] = { fetchedAt: now, schedules }
+                cacheAll[lcId] = { fetchedAt: now, schedules, detailed: true }
                 writeSchedulesCache(cacheAll)
                 return schedules
             } catch (err) {
                 if (cached) return cached.schedules
                 return []
             }
+        }
+
+        // Fetches LiveChart IDs and schedules for up to WARM_BATCH_SIZE anime in a single request.
+        async function refreshSchedulesBatch(mediaIds: number[]) {
+            const mapping = readMapping()
+            const cacheAll = readSchedulesCache()
+            const overrides = getOverrides()
+            const now = Date.now()
+            const toFetch: number[] = []
+            for (const mediaId of mediaIds) {
+                if (overrides[String(mediaId)] === ANILIST_ONLY_VALUE) continue
+                const entry = mapping[String(mediaId)]
+                if (entry && entry.manual) {
+                    // The batch lookup is by AniList ID, so it would resolve the auto-detected entry instead of the pinned one.
+                    if (entry.id) await refreshLcSchedules(entry.id, false)
+                    continue
+                }
+                if (entry && !entry.id && now - entry.checkedAt < MAPPING_TTL_MISS) continue
+                const cached = entry && entry.id ? cacheAll[entry.id] : null
+                if (cached && now - cached.fetchedAt < SCHEDULES_TTL) continue
+                toFetch.push(mediaId)
+            }
+            if (!toFetch.length) return
+
+            const data = await lcQuery<{ anime?: { nodes?: { databaseId: string; anilistUrl?: string; releaseSchedules?: { nodes?: any[] } }[] } }>(
+                LC_SCHEDULE_TIMES_QUERY,
+                { anilistIds: toFetch, first: toFetch.length },
+            )
+            const nodeByMediaId: Record<number, { databaseId: string; releaseSchedules?: { nodes?: any[] } }> = {}
+            for (const node of (data.anime && data.anime.nodes) || []) {
+                const mediaId = node.anilistUrl ? extractAnilistId(node.anilistUrl) : null
+                if (mediaId != null) nodeByMediaId[mediaId] = node
+            }
+
+            // Re-read: refreshLcSchedules above writes the same blobs.
+            const freshMapping = readMapping()
+            const freshCache = readSchedulesCache()
+            for (const mediaId of toFetch) {
+                const node = nodeByMediaId[mediaId]
+                if (!node) {
+                    freshMapping[String(mediaId)] = { id: null, checkedAt: now }
+                    continue
+                }
+                const lcId = String(node.databaseId)
+                freshMapping[String(mediaId)] = { id: lcId, checkedAt: now }
+                freshCache[lcId] = { fetchedAt: now, schedules: parseSchedules((node.releaseSchedules && node.releaseSchedules.nodes) || []) }
+            }
+            writeMapping(freshMapping)
+            writeSchedulesCache(freshCache)
         }
 
         function safeAnimeTitle(anime: $app.AL_BaseAnime | null | undefined): string {
@@ -829,6 +878,8 @@ function init() {
         const globalModeRef = ctx.fieldRef<string>($storage.get<string>(GLOBAL_MODE_KEY) || "japan")
         const globalDubRef = ctx.fieldRef<boolean>($storage.get<boolean>(GLOBAL_DUB_ENABLED_KEY) === true)
         const globalDubLangRef = ctx.fieldRef<string>($storage.get<string>(GLOBAL_DUB_LANG_KEY) || DUB_LANGUAGE_OPTIONS[0].value)
+        // The hooks read the language from storage, which is otherwise only written when the
+        // select changes, so a never-touched default ("en") showed in the tray but was ignored.
         if (!$storage.get<string>(GLOBAL_DUB_LANG_KEY)) $storage.set(GLOBAL_DUB_LANG_KEY, globalDubLangRef.current)
         const mediaIdRef = ctx.fieldRef<string>("")
         const overrideRef = ctx.fieldRef<string>(DEFAULT_OVERRIDE_VALUE)
@@ -897,7 +948,7 @@ function init() {
         }
 
         async function applySchedules(mediaId: number, lcId: string, forceRefresh: boolean) {
-            const schedules = await refreshLcSchedules(lcId, forceRefresh)
+            const schedules = await refreshLcSchedules(lcId, forceRefresh, true)
             if (!schedules.length) {
                 scheduleOptions.set([])
                 currentSchedules.set([])
@@ -1280,12 +1331,12 @@ function init() {
         // ctx.setInterval doesn't wait for warmNext()'s promise to settle
         // before the next tick fires, and a LiveChart fetch can easily take
         // longer than WARM_TICK_MS - without this guard, two overlapping
-        // calls processing two different anime each do their own
+        // calls processing two different batches each do their own
         // read-modify-write of the shared mapping/schedules storage blobs,
         // and whichever writes back last silently clobbers the other's
         // update with its own (now-stale) snapshot. Serializing ticks makes
-        // each discoverLcAnimeId/refreshLcSchedules read-modify-write cycle
-        // atomic with respect to the others.
+        // each refreshSchedulesBatch read-modify-write cycle atomic with
+        // respect to the others.
         let warmInProgress = false
 
         async function warmNext() {
@@ -1320,7 +1371,6 @@ function init() {
                             }
                         }
                     }
-                    await resolveLcAnimeIds(ids, false)
                     warmQueue = ids
                     warmQueueTotal = ids.length
                     warmQueueBuiltAt = now
@@ -1328,30 +1378,26 @@ function init() {
                     warmError.set(lists ? (ids.length === 0 ? "No currently airing anime in your Watching/Planning lists" : "") : "Could not read your AniList collection yet")
                 } catch (err: any) {
                     warmQueueBuiltAt = now
-                    warmError.set("Failed to build the schedule queue: " + (err && err.message ? err.message : String(err)))
+                    warmError.set("Failed to read AniList collection: " + (err && err.message ? err.message : String(err)))
                     return
                 }
             }
 
-            const mediaId = warmQueue.shift()
-            if (mediaId == null) return
+            const batch = warmQueue.splice(0, WARM_BATCH_SIZE)
+            if (!batch.length) return
 
             warmProgress.set({ done: warmQueueTotal - warmQueue.length, total: warmQueueTotal })
 
             try {
-                if (getOverrides()[String(mediaId)] === ANILIST_ONLY_VALUE) return
-                const lcId = await discoverLcAnimeId(mediaId, false)
-                if (lcId) {
-                    await refreshLcSchedules(lcId, false)
-                    const t = Date.now()
-                    const queueDrained = warmQueue.length === 0
-                    if (queueDrained || t - lastWarmRefreshAt > WARM_REFRESH_THROTTLE_MS) {
-                        lastWarmRefreshAt = t
-                        refreshSchedule(queueDrained)
-                    }
+                await refreshSchedulesBatch(batch)
+                const t = Date.now()
+                const queueDrained = warmQueue.length === 0
+                if (queueDrained || t - lastWarmRefreshAt > WARM_REFRESH_THROTTLE_MS) {
+                    lastWarmRefreshAt = t
+                    refreshSchedule(queueDrained)
                 }
             } catch (err) {
-                // this anime's slot failed - it'll be retried once the queue rebuilds
+                // this batch failed - it'll be retried once the queue rebuilds
             }
         }
 
