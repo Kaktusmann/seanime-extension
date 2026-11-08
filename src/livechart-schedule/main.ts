@@ -557,8 +557,10 @@ function init() {
             "User-Agent": "me.livechart.android/7.7.2 (Linux; Android 16 SDK 36; Google Pixel 8 Pro)",
         }
 
-        const LC_SEARCH_QUERY = `query($term: String) {
-            anime(term: $term, first: 5) {
+        const LC_LOOKUP_BATCH_SIZE = 100
+
+        const LC_ANILIST_LOOKUP_QUERY = `query($anilistIds: [BigInt!], $first: Int) {
+            anime(anilistId_in: $anilistIds, first: $first) {
                 nodes { databaseId anilistUrl }
             }
         }`
@@ -709,7 +711,7 @@ function init() {
 
         function scheduleStatusText(s: LcSchedule): string {
             if (s.nextEpisodeDate == null || s.nextEpisodeNumber == null) {
-                return s.releaseStatus === "FINISHED" ? "Finished" : "No upcoming episode data"
+                return s.releaseStatus === "RELEASE_FINISHED" ? "Finished" : "No upcoming episode data"
             }
             const d = new Date(s.nextEpisodeDate)
             if (isNaN(d.getTime())) return "No upcoming episode data"
@@ -729,40 +731,38 @@ function init() {
             return body.data
         }
 
-        async function discoverLcAnimeId(mediaId: number, forceRefresh: boolean): Promise<string | null> {
+        async function resolveLcAnimeIds(mediaIds: number[], forceRefresh: boolean) {
             const mapping = readMapping()
-            const key = String(mediaId)
-            const cached = mapping[key]
             const now = Date.now()
-            if (cached && cached.manual) return cached.id
-            if (!forceRefresh && cached) {
-                const ttl = cached.id ? MAPPING_TTL_HIT : MAPPING_TTL_MISS
-                if (now - cached.checkedAt < ttl) return cached.id
-            }
+            const stale = mediaIds.filter(id => {
+                const cached = mapping[String(id)]
+                if (!cached) return true
+                if (cached.manual) return false
+                if (forceRefresh) return true
+                return now - cached.checkedAt >= (cached.id ? MAPPING_TTL_HIT : MAPPING_TTL_MISS)
+            })
 
-            let found: string | null = null
-            try {
-                const anime = $anilist.getAnime(mediaId)
-                const titles: string[] = []
-                if (anime && anime.title && anime.title.romaji) titles.push(anime.title.romaji)
-                if (anime && anime.title && anime.title.english && anime.title.english !== anime.title.romaji) titles.push(anime.title.english)
-
-                for (const term of titles) {
-                    const data = await lcQuery<{ anime?: { nodes?: { databaseId: string; anilistUrl?: string }[] } }>(LC_SEARCH_QUERY, { term })
-                    const nodes = (data.anime && data.anime.nodes) || []
-                    const match = nodes.find(n => !!n.anilistUrl && extractAnilistId(n.anilistUrl!) === mediaId)
-                    if (match) {
-                        found = String(match.databaseId)
-                        break
-                    }
+            for (let i = 0; i < stale.length; i += LC_LOOKUP_BATCH_SIZE) {
+                const batch = stale.slice(i, i + LC_LOOKUP_BATCH_SIZE)
+                const data = await lcQuery<{ anime?: { nodes?: { databaseId: string; anilistUrl?: string }[] } }>(
+                    LC_ANILIST_LOOKUP_QUERY,
+                    { anilistIds: batch, first: batch.length },
+                )
+                const lcIdByMediaId: Record<number, string> = {}
+                for (const node of (data.anime && data.anime.nodes) || []) {
+                    const mediaId = node.anilistUrl ? extractAnilistId(node.anilistUrl) : null
+                    if (mediaId != null) lcIdByMediaId[mediaId] = String(node.databaseId)
                 }
-            } catch (err) {
-                // leave found = null; the miss is cached below so we back off rather than retry every pass
+                for (const id of batch) mapping[String(id)] = { id: lcIdByMediaId[id] ?? null, checkedAt: now }
+                writeMapping(mapping)
             }
+            return mapping
+        }
 
-            mapping[key] = { id: found, checkedAt: now }
-            writeMapping(mapping)
-            return found
+        async function discoverLcAnimeId(mediaId: number, forceRefresh: boolean): Promise<string | null> {
+            const mapping = await resolveLcAnimeIds([mediaId], forceRefresh)
+            const entry = mapping[String(mediaId)]
+            return entry ? entry.id : null
         }
 
         async function refreshLcSchedules(lcId: string, forceRefresh: boolean): Promise<LcSchedule[]> {
@@ -829,6 +829,7 @@ function init() {
         const globalModeRef = ctx.fieldRef<string>($storage.get<string>(GLOBAL_MODE_KEY) || "japan")
         const globalDubRef = ctx.fieldRef<boolean>($storage.get<boolean>(GLOBAL_DUB_ENABLED_KEY) === true)
         const globalDubLangRef = ctx.fieldRef<string>($storage.get<string>(GLOBAL_DUB_LANG_KEY) || DUB_LANGUAGE_OPTIONS[0].value)
+        if (!$storage.get<string>(GLOBAL_DUB_LANG_KEY)) $storage.set(GLOBAL_DUB_LANG_KEY, globalDubLangRef.current)
         const mediaIdRef = ctx.fieldRef<string>("")
         const overrideRef = ctx.fieldRef<string>(DEFAULT_OVERRIDE_VALUE)
         const suppressContinueWatchingRef = ctx.fieldRef<boolean>($storage.get<boolean>(SUPPRESS_CONTINUE_WATCHING_KEY) !== false)
@@ -1319,6 +1320,7 @@ function init() {
                             }
                         }
                     }
+                    await resolveLcAnimeIds(ids, false)
                     warmQueue = ids
                     warmQueueTotal = ids.length
                     warmQueueBuiltAt = now
@@ -1326,7 +1328,7 @@ function init() {
                     warmError.set(lists ? (ids.length === 0 ? "No currently airing anime in your Watching/Planning lists" : "") : "Could not read your AniList collection yet")
                 } catch (err: any) {
                     warmQueueBuiltAt = now
-                    warmError.set("Failed to read AniList collection: " + (err && err.message ? err.message : String(err)))
+                    warmError.set("Failed to build the schedule queue: " + (err && err.message ? err.message : String(err)))
                     return
                 }
             }
