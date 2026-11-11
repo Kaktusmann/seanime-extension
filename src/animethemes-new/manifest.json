@@ -1,6 +1,6 @@
 {
   "id": "animethemes-new",
-  "name": "AnimeThemes Player",
+  "name": "AnimeThemes Player (NEW)",
   "version": "2.1.0",
   "manifestURI": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/animethemes-new/manifest.json",
   "language": "typescript",
