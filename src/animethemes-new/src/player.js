@@ -348,27 +348,12 @@ const fetchAniSongDB = async () => {
         malJson.data?.Media?.title?.native || "Anime";
     if (!malId) throw new Error("AniList → MAL failed");
 
-    // MAL → ANN (Jikan)
-    const jikan    = await fetch(`https://jikanfortheweebs.midnightignite.me/v4/anime/${malId}/external`);
-    const jikanJson = await jikan.json();
-    const ann      = jikanJson.data?.find(e => e.name === "ANN");
-    if (!ann) throw new Error("MAL → ANN failed");
-
-    const annId = Number(ann.url.match(/id=(\d+)/)?.[1]);
-    if (!annId) throw new Error("ANN id missing");
-
-    // ANN → AniSongDB
-    const songsResp = await fetch("https://anisongdb.com/api/annId_request", {
+    const songsResp = await fetch("https://anisongdb.com/api/mal_ids_request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            annId,
-            ignore_duplicate: false,
-            opening_filter: true,
-            ending_filter: true,
-            insert_filter: true,
-        }),
+        body: JSON.stringify({ mal_ids: [malId] }),
     });
+    if (!songsResp.ok) throw new Error(`AniSongDB ${songsResp.status}`);
     const songs = await songsResp.json();
     if (!Array.isArray(songs) || !songs.length) throw new Error("AniSongDB empty");
 
@@ -410,12 +395,9 @@ const fetchAniSongDBDirect = async (query) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
             anime_search_filter: { search: query, partial_match: true },
-            and_logic: false, ignore_duplicate: false,
-            opening_filter: true, ending_filter: true, insert_filter: true,
-            normal_broadcast: true, rebroadcast: true,
-            standard: true, instrumental: true, chanting: true, character: true,
         }),
     });
+    if (!res.ok) throw new Error(`AniSongDB ${res.status}`);
     return res.json();
 };
 
@@ -513,12 +495,10 @@ const searchAniSongDBByName = async (query) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
             anime_search_filter: { search: query, partial_match: true },
-            and_logic: false, ignore_duplicate: false,
-            opening_filter: true, ending_filter: true, insert_filter: true,
         }),
     });
+    if (!res.ok) throw new Error(`AniSongDB ${res.status}`);
     const data = await res.json();
-    console.log(data);
     const seen = new Map();
     data.forEach(r => {
         const ids = r.linked_ids?.anilist;
