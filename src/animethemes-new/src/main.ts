@@ -88,7 +88,6 @@ function init() {
         button.mount();
 
         // State
-        let isOpen: boolean = false;
         let lastInjectedId: string | null = null;
         let currentAnilistId: string | null = null;
         let trackedScript: any = null;
@@ -151,40 +150,39 @@ function init() {
             lastInjectedId = anilistId;
         };
 
-        const setVisible = (v: boolean): Promise<void> =>
+        // The player's own X button hides the root in-page, so visibility is read from the DOM, not tracked here.
+        const setVisible = (v: boolean | "toggle"): Promise<void> =>
             run(
-                "var w=document.getElementById('anime-theme-player-root');" +
-                "if(w)w.style.display='" + (v ? "block" : "none") + "';" +
+                "(function(){var w=document.getElementById('anime-theme-player-root');" +
+                "if(!w)return;" +
+                "var v=" + (v === "toggle" ? "w.style.display==='none'" : v) + ";" +
+                "w.style.display=v?'block':'none';" +
 
                 "var c=document.querySelector('[data-anime-entry-page-content-container=\"true\"]');" +
-                "if(c)c.style.display='" + (v ? "none" : "") + "';" +
+                "if(c)c.style.display=v?'none':'';" +
 
                 "var g=document.querySelector('[data-media-page-header-banner-bottom-gradient=\"true\"]');" +
-                "if(g)g.style.pointerEvents='" + (v ? "none" : "") + "';" +
+                "if(g)g.style.pointerEvents=v?'none':'';" +
 
-                (v ? "" : "var vid=document.querySelector('#anime-theme-player video');if(vid)vid.pause();")
+                "if(!v){var vid=document.querySelector('#anime-theme-player video');if(vid)vid.pause();}})();"
             );
 
         button.onClick(async (e: { media: $app.AL_BaseAnime }) => {
             currentAnilistId = e.media.id.toString();
 
-            if (isOpen) {
-                await setVisible(false);
-                isOpen = false;
+            if (lastInjectedId === currentAnilistId) {
+                await setVisible("toggle");
                 return;
             }
 
-            if (lastInjectedId !== currentAnilistId) {
-                button.setLoading(true);
-                try {
-                    await injectPlayer(currentAnilistId);
-                } finally {
-                    button.setLoading(false);
-                }
+            button.setLoading(true);
+            try {
+                await injectPlayer(currentAnilistId);
+            } finally {
+                button.setLoading(false);
             }
 
             await setVisible(true);
-            isOpen = true;
         });
 
         ctx.dom.onReady(() => {
@@ -199,7 +197,6 @@ function init() {
                         "var c=document.querySelector('[data-anime-player=\"css\"]');if(c)c.remove();" +
                         "var m=document.querySelector('[data-anime-entry-page-content-container=\"true\"]');if(m)m.style.display='';"
                     );
-                    isOpen = false;
                     lastInjectedId = null;
                     currentAnilistId = null;
                     return;

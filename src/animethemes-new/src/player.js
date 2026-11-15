@@ -349,7 +349,7 @@ const fetchAniSongDB = async () => {
     if (!malId) throw new Error("AniList → MAL failed");
 
     // MAL → ANN (Jikan)
-    const jikan    = await fetch(`https://api.jikan.moe/v4/anime/${malId}/external`);
+    const jikan    = await fetch(`https://jikanfortheweebs.midnightignite.me/v4/anime/${malId}/external`);
     const jikanJson = await jikan.json();
     const ann      = jikanJson.data?.find(e => e.name === "ANN");
     if (!ann) throw new Error("MAL → ANN failed");
