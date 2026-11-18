@@ -1,7 +1,7 @@
 {
   "id": "animethemes-new",
   "name": "AnimeThemes Player (NEW)",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "manifestURI": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/animethemes-new/manifest.json",
   "language": "typescript",
   "type": "plugin",
@@ -24,6 +24,36 @@
     "requiresConfig": false,
     "version": 1,
     "fields": [
+      {
+        "name": "defaultProvider",
+        "label": "Default provider",
+        "type": "select",
+        "default": "animethemes",
+        "options": [
+          { "label": "AnimeThemes", "value": "animethemes" },
+          { "label": "AniSongDB", "value": "anisongdb" }
+        ]
+      },
+      {
+        "name": "initialVolume",
+        "label": "Initial volume",
+        "type": "select",
+        "default": "0.7",
+        "options": [
+          { "label": "0%", "value": "0" },
+          { "label": "25%", "value": "0.25" },
+          { "label": "50%", "value": "0.5" },
+          { "label": "70%", "value": "0.7" },
+          { "label": "75%", "value": "0.75" },
+          { "label": "100%", "value": "1" }
+        ]
+      },
+      {
+        "name": "autoplay",
+        "label": "Autoplay first OP",
+        "type": "switch",
+        "default": "true"
+      },
       {
         "name": "playerLocation",
         "label": "Player location",

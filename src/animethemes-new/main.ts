@@ -2,12 +2,7 @@
 function init() {
     $ui.register((ctx) => {
 
-        const STORAGE_KEYS = {
-            AUTOPLAY:       "anime-player.autoplay",
-            PROVIDER:       "anime-player.provider",
-            VOLUME:         "anime-player.volume",
-            MANUAL_MATCHES: "anime-player.manualMatches",
-        } as const;
+        const MANUAL_MATCHES_KEY = "anime-player.manualMatches";
 
         // Embedded assets
         const PLAYER_CSS: string = "#anime-theme-player {\n    width: 97%;\n    max-width: 97%;\n    height: 97%;\n    background: #070707;\n    border: 1px solid #ffffff0d;\n    border-radius: 12px;\n    overflow: hidden;\n    font-family: Inter, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif;\n    color: #e8e8e8;\n    margin-bottom: 2rem;\n    display: flex;\n    flex-direction: column;\n    position: relative;\n    z-index: 40;\n    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);\n}\n\n#anime-theme-player-root.floating {\n    position: fixed;\n    right: 16px;\n    bottom: 16px;\n    width: min(900px, 95vw);\n    z-index: 50;\n}\n\n#anime-theme-player-root.floating #anime-theme-player {\n    width: 100%;\n    max-width: 100%;\n    height: auto;\n    margin-bottom: 0;\n}\n\n.atp-toolbar {\n    display: flex;\n    justify-content: space-between;\n    align-items: center;\n    padding: 8px 16px;\n    background: #0a0a0a;\n    border-bottom: 1px solid #ffffff05;\n    flex-shrink: 0;\n}\n\n.atp-provider-group {\n    display: flex;\n    align-items: center;\n    gap: 8px;\n}\n\n.atp-provider-label {\n    font-size: 11px;\n    font-weight: 700;\n    color: #555;\n    text-transform: uppercase;\n    letter-spacing: 0.05em;\n}\n\n.atp-toolbar-actions {\n    display: flex;\n    gap: 8px;\n}\n\n.atp-icon-btn {\n    background: transparent;\n    border: 1px solid transparent;\n    color: #666;\n    cursor: pointer;\n    width: 28px;\n    height: 28px;\n    display: flex;\n    align-items: center;\n    justify-content: center;\n    border-radius: 6px;\n    transition: all 0.2s;\n    padding: 0;\n}\n\n.atp-icon-btn:hover {\n    color: #fff;\n    background: #ffffff0a;\n}\n\n.atp-icon-btn.active {\n    color: #4a89dc;\n    background: #4a89dc15;\n}\n\n.atp-icon-btn.danger:hover {\n    color: #ff5555;\n    background: #ff555515;\n}\n\n.atp-body {\n    display: grid;\n    grid-template-columns: 300px 1fr;\n    height: auto;\n    min-height: 0;\n}\n\n.atp-themes-col {\n    width: 300px;\n    display: flex;\n    flex-direction: column;\n    border-right: 1px solid #ffffff0d;\n    background: #0a0a0a;\n    position: relative;\n    overflow: hidden;\n}\n\n.atp-themes-col.collapsed {\n    width: 0;\n    border-right: none;\n}\n\n/* Absolutely positioned so the list never sizes the row; the video column does. */\n#atp-themes-list {\n    position: absolute;\n    inset: 0;\n    overflow-y: auto;\n    padding: 10px;\n    scrollbar-width: thin;\n    scrollbar-color: #333 transparent;\n}\n\n.theme-item {\n    display: flex;\n    align-items: center;\n    padding: 10px 16px;\n    border-bottom: 1px solid #ffffff05;\n    cursor: pointer;\n    justify-content: space-between;\n}\n\n.theme-item:hover {\n    background: #ffffff05;\n}\n\n.theme-item.active {\n    background: #ffffff0a;\n    border-left: 3px solid #4a89dc;\n    padding-left: 13px;\n}\n\n.theme-item-row {\n    display: flex;\n    align-items: center;\n    gap: 12px;\n    flex: 1;\n    overflow: hidden;\n}\n\n.theme-type-badge {\n    font-size: 10px;\n    font-weight: 700;\n    color: #888;\n    background: #ffffff08;\n    padding: 3px 6px;\n    border-radius: 4px;\n    min-width: 30px;\n    text-align: center;\n    flex-shrink: 0;\n    white-space: nowrap;\n}\n\n.theme-item.active .theme-type-badge {\n    color: #4a89dc;\n    background: #4a89dc15;\n}\n\n.theme-song {\n    font-size: 13px;\n    color: #ddd;\n    font-weight: 500;\n    white-space: nowrap;\n    overflow: hidden;\n    text-overflow: ellipsis;\n}\n\n.theme-artist {\n    font-size: 11px;\n    color: #666;\n    margin-left: auto;\n    padding-left: 10px;\n    max-width: 30%;\n    text-align: right;\n    white-space: nowrap;\n    overflow: hidden;\n    text-overflow: ellipsis;\n}\n\n.theme-actions {\n    display: none;\n}\n\n.atp-main-col {\n    flex: 1;\n    display: flex;\n    flex-direction: column;\n    min-width: 0;\n    height: 100%;\n    background: #000;\n}\n\n.atp-info-bar {\n    display: flex;\n    align-items: center;\n    justify-content: space-between;\n    padding: 12px 20px;\n    background: #070707;\n    border-bottom: 1px solid #ffffff05;\n    flex-shrink: 0;\n}\n\n.atp-song-info {\n    display: flex;\n    align-items: center;\n    gap: 16px;\n    overflow: hidden;\n    flex: 0 1 45%;\n}\n\n.atp-song-badge {\n    background: #ffffff10;\n    color: #aaa;\n    font-size: 14px;\n    font-weight: 800;\n    padding: 6px 10px;\n    border-radius: 6px;\n    text-align: center;\n    white-space: nowrap;\n}\n\n.atp-song-details {\n    display: flex;\n    flex-direction: column;\n    overflow: hidden;\n    gap: 2px;\n}\n\n.atp-song-title {\n    font-size: 16px;\n    font-weight: 600;\n    color: #fff;\n    white-space: nowrap;\n    overflow: hidden;\n    text-overflow: ellipsis;\n}\n\n.atp-song-credits {\n    display: flex;\n    flex-direction: column;\n    align-items: flex-end;\n    font-size: 9px;\n    color: rgba(255, 255, 255, 0.45);\n    text-align: right;\n    max-width: 450px;\n    white-space: nowrap;\n    overflow: hidden;\n    text-overflow: ellipsis;\n    text-transform: uppercase;\n    letter-spacing: 0.05em;\n    line-height: 1.2;\n}\n\n.atp-song-artist {\n    font-size: 12px;\n    color: #666;\n    white-space: nowrap;\n    overflow: hidden;\n    text-overflow: ellipsis;\n}\n\n.atp-main-controls {\n    display: flex;\n    align-items: center;\n    gap: 16px;\n    flex: 1;\n    justify-content: flex-end;\n}\n\n.atp-big-ctrl-btn {\n    width: 32px;\n    height: 32px;\n    border-radius: 6px;\n    border: 1px solid #ffffff10;\n    background: #ffffff05;\n    color: #ddd;\n    display: flex;\n    align-items: center;\n    justify-content: center;\n    cursor: pointer;\n    transition: all 0.15s;\n}\n\n.atp-big-ctrl-btn:hover {\n    background: #ffffff10;\n    color: #fff;\n    border-color: #ffffff20;\n}\n\n.atp-big-ctrl-btn.active {\n    background: #ffffff20;\n    color: #fff;\n    border-color: #ffffff30;\n}\n\n.atp-video-wrapper {\n    position: relative;\n    width: 100%;\n    aspect-ratio: 16 / 9;\n    background: #000;\n    display: flex;\n    align-items: center;\n    justify-content: center;\n}\n\n#atp-video {\n    width: 100%;\n    height: 100%;\n    object-fit: contain;\n}\n\n#anime-theme-player video {\n    width: 100%;\n    height: 100%;\n    display: block;\n    margin: auto;\n    object-fit: contain;\n    background: #000;\n}\n\n.atp-video-wrapper.audio-only-mode video {\n    display: none !important;\n}\n\n.atp-audio-only-overlay {\n    display: none;\n    flex-direction: column;\n    align-items: center;\n    gap: 10px;\n    color: #666;\n    position: absolute;\n    top: 50%;\n    left: 50%;\n    transform: translate(-50%, -50%);\n}\n\n.atp-video-wrapper.audio-only-mode .atp-audio-only-overlay {\n    display: flex !important;\n}\n\n.atp-idle {\n    color: #444;\n    font-size: 14px;\n    position: absolute;\n}\n\n.atp-audio-only-overlay svg {\n    width: 48px;\n    height: 48px;\n    opacity: 0.5;\n}\n\n.atp-overlay-controls {\n    position: absolute;\n    bottom: 0;\n    left: 0;\n    right: 0;\n    background: linear-gradient(to top, rgba(0, 0, 0, 0.9), transparent);\n    padding: 20px 16px 12px;\n    opacity: 0;\n    transition: opacity 0.2s;\n    display: flex;\n    flex-direction: column;\n    gap: 8px;\n    z-index: 10;\n}\n\n.atp-video-wrapper:hover .atp-overlay-controls,\n.atp-video-wrapper.audio-only-mode .atp-overlay-controls {\n    opacity: 1;\n}\n\n.atp-body.collapsed {\n    grid-template-columns: 0 1fr;\n}\n\n.atp-progress-row {\n    display: flex;\n    align-items: center;\n    gap: 10px;\n    width: 100%;\n}\n\n.atp-time {\n    font-size: 11px;\n    color: #ddd;\n    font-variant-numeric: tabular-nums;\n    width: 35px;\n}\n\n.atp-progress-bar {\n    flex: 1;\n    height: 4px;\n    background: rgba(255, 255, 255, 0.2);\n    border-radius: 4px;\n    cursor: pointer;\n    position: relative;\n}\n\n.atp-progress-bar:hover {\n    height: 6px;\n}\n\n.atp-progress-fill {\n    height: 100%;\n    background: #4a89dc;\n    border-radius: 4px;\n    width: 0;\n}\n\n.atp-sub-controls {\n    display: flex;\n    align-items: center;\n    gap: 12px;\n}\n\n.atp-sub-controls .spacer {\n    flex: 1;\n}\n\n.atp-ctrl-btn {\n    background: none;\n    border: none;\n    color: #ccc;\n    cursor: pointer;\n    display: flex;\n    align-items: center;\n    justify-content: center;\n    padding: 4px;\n    border-radius: 4px;\n}\n\n.atp-ctrl-btn:hover {\n    color: #fff;\n    background: rgba(255, 255, 255, 0.1);\n}\n\n.atp-speed-select {\n    background: none;\n    color: #ccc;\n    border: none;\n    border-radius: 4px;\n    font-size: 12px;\n    padding: 4px;\n    cursor: pointer;\n}\n\n.atp-speed-select:hover {\n    color: #fff;\n    background: rgba(255, 255, 255, 0.1);\n}\n\n.atp-speed-select option {\n    background: #111;\n}\n\n.atp-volume-track {\n    width: 60px;\n    height: 4px;\n    background: rgba(255, 255, 255, 0.2);\n    border-radius: 4px;\n    cursor: pointer;\n    position: relative;\n}\n\n/* Invisible, taller hit area around the 4px track. */\n.atp-volume-track::before {\n    content: \"\";\n    position: absolute;\n    inset: -10px 0;\n}\n\n.atp-volume-fill {\n    height: 100%;\n    background: #fff;\n    border-radius: 4px;\n    width: 50%;\n}\n\n.atp-manual-panel {\n    display: none;\n    padding: 10px 16px;\n    background: #111;\n    border-bottom: 1px solid #ffffff05;\n    flex-shrink: 0;\n}\n\n.atp-manual-panel.visible {\n    display: flex;\n    flex-direction: column;\n    gap: 8px;\n}\n\n.atp-manual-search-row {\n    display: flex;\n    gap: 8px;\n}\n\n.atp-manual-input {\n    flex: 1;\n    background: #222;\n    border: 1px solid #333;\n    color: #fff;\n    padding: 6px 10px;\n    border-radius: 4px;\n    font-size: 13px;\n}\n\n.atp-manual-provider-select,\n.atp-manual-search-btn,\n.atp-manual-clear-btn {\n    font-size: 13px;\n    padding: 6px 12px;\n    border-radius: 4px;\n    cursor: pointer;\n}\n\n.atp-manual-provider-select {\n    background: #222;\n    border: 1px solid #333;\n    color: #ddd;\n}\n\n.atp-manual-search-btn {\n    background: #4a89dc15;\n    border: 1px solid #4a89dc30;\n    color: #5d9cec;\n}\n\n.atp-manual-clear-btn {\n    background: transparent;\n    border: 1px solid #ffffff10;\n    color: #777;\n}\n\n.atp-anime-results {\n    background: #1a1a1a;\n    margin-top: 5px;\n    border-radius: 4px;\n    max-height: 150px;\n    overflow-y: auto;\n    display: none;\n}\n\n.atp-anime-results.visible {\n    display: flex;\n    flex-direction: column;\n}\n\n.anime-result-item {\n    padding: 8px 12px;\n    cursor: pointer;\n    color: #ccc;\n    font-size: 13px;\n    border-bottom: 1px solid #ffffff05;\n}\n\n.anime-result-item:hover {\n    background: #333;\n    color: #fff;\n}\n\n.atp-status {\n    padding: 20px;\n    text-align: center;\n    font-size: 13px;\n    color: #555;\n}\n\n.atp-spinner {\n    width: 16px;\n    height: 16px;\n    border: 2px solid #333;\n    border-top-color: #4a89dc;\n    border-radius: 50%;\n    animation: atp-spin 0.8s linear infinite;\n    display: inline-block;\n    vertical-align: middle;\n    margin-right: 8px;\n}\n\n@keyframes atp-spin {\n    to {\n        transform: rotate(360deg);\n    }\n}";
@@ -16,29 +11,13 @@ function init() {
 
         const b64 = (s: string): string => Buffer.from(s, "utf8").toString("base64");
 
+        // userConfig values may arrive as strings (switch defaults are "true"/"false").
         const getSettings = () => ({
-            autoplay:      ($storage.get(STORAGE_KEYS.AUTOPLAY)       as boolean)                ?? true,
-            provider:      ($storage.get(STORAGE_KEYS.PROVIDER)       as string)                 ?? "animethemes",
-            volume:        ($storage.get(STORAGE_KEYS.VOLUME)         as number)                 ?? 0.7,
-            manualMatches: ($storage.get(STORAGE_KEYS.MANUAL_MATCHES) as Record<string, string>) ?? {},
+            autoplay:      $getUserPreference("autoplay") !== "false",
+            provider:      $getUserPreference("defaultProvider") || "animethemes",
+            volume:        Number($getUserPreference("initialVolume") ?? 0.7),
+            manualMatches: ($storage.get(MANUAL_MATCHES_KEY) as Record<string, string>) ?? {},
         });
-
-        const refs = {
-            autoplay: ctx.fieldRef(getSettings().autoplay),
-            provider: ctx.fieldRef(getSettings().provider),
-            volume:   ctx.fieldRef(getSettings().volume),
-        };
-
-        const tray = ctx.newTray({
-            tooltipText: "Anime Themes",
-            iconUrl: "https://raw.githubusercontent.com/jabifx/seanime-extensions/master/src/AnimeThemes/icon.ico",
-            withContent: true,
-            width: "28rem",
-        });
-
-        refs.autoplay.onValueChange((v) => $storage.set(STORAGE_KEYS.AUTOPLAY, v));
-        refs.provider.onValueChange((v) => $storage.set(STORAGE_KEYS.PROVIDER, v));
-        refs.volume.onValueChange((v)   => $storage.set(STORAGE_KEYS.VOLUME, v));
 
         const playerLocation = $getUserPreference("playerLocation") || "button";
         const showButton = playerLocation !== "tray";
@@ -56,71 +35,43 @@ function init() {
             };
         };
 
-        const labeledField = (label: string, control: any) =>
-            tray.flex([
-                tray.text(label, {
-                    className: "flex items-center w-40 shrink-0 whitespace-nowrap px-3 bg-gray-800 rounded-l-xl border text-sm",
-                    style: { marginRight: "-1px" },
-                }),
-                control,
-            ], { gap: 0 });
-
-        const controlStyle = { borderRadius: "0 0.75rem 0.75rem 0", background: "rgb(var(--color-gray-900))" };
-
-        tray.render(() => {
-            const fields = [
-                labeledField("Default provider", tray.select("", {
-                    fieldRef: refs.provider,
-                    options: [
-                        { label: "AnimeThemes", value: "animethemes" },
-                        { label: "AniSongDB",   value: "anisongdb"   },
-                    ],
-                    style: controlStyle,
-                })),
-                labeledField("Initial volume", tray.select("", {
-                    fieldRef: refs.volume,
-                    options: [
-                        { label: "0%",   value: 0.0  },
-                        { label: "25%",  value: 0.25 },
-                        { label: "50%",  value: 0.5  },
-                        { label: "75%",  value: 0.75 },
-                        { label: "100%", value: 1    },
-                    ],
-                    style: controlStyle,
-                })),
-                labeledField("Autoplay first OP", tray.switch("", { fieldRef: refs.autoplay })),
-            ];
-
-            const media = currentMedia.get();
-
-            const banner = tray.div([], {
-                className: "absolute h-40 rounded-t-xl bg-center bg-cover pointer-events-none",
-                style: {
-                    top: "-0.75rem",
-                    left: "-0.75rem",
-                    width: "calc(100% + 1.5rem)",
-                    backgroundImage: media?.banner ? `url(${media.banner})` : "none",
-                    maskImage: "linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, transparent 100%)",
-                },
+        if (showTrayPlayer) {
+            const tray = ctx.newTray({
+                tooltipText: "Anime Themes",
+                iconUrl: "https://raw.githubusercontent.com/jabifx/seanime-extensions/master/src/AnimeThemes/icon.ico",
+                withContent: true,
+                width: "28rem",
             });
 
-            const content = tray.stack([
-                tray.div([
-                    tray.text(media ? "AnimeThemes for" : "AnimeThemes", { className: "text-sm" }),
-                    tray.text(media?.title || "Open an anime page to detect it", {
-                        className: "font-bold text-xl line-clamp-2 break-normal text-pretty leading-tight",
-                    }),
-                ], { className: "space-y-1 font-semibold h-20" }),
-                tray.div(fields, { className: "space-y-2" }),
-                ...(showTrayPlayer
-                    ? [tray.flex([
-                        tray.button("Toggle player", { intent: "primary", size: "md", onClick: "toggle-floating-player" }),
-                    ], { className: "justify-end" })]
-                    : []),
-            ], { className: "p-2 space-y-2" });
+            tray.render(() => {
+                const media = currentMedia.get();
 
-            return tray.div([banner, tray.div([content], { style: { position: "relative" } })], { style: { position: "relative" } });
-        });
+                const banner = tray.div([], {
+                    className: "absolute h-40 rounded-t-xl bg-center bg-cover pointer-events-none",
+                    style: {
+                        top: "-0.75rem",
+                        left: "-0.75rem",
+                        width: "calc(100% + 1.5rem)",
+                        backgroundImage: media?.banner ? `url(${media.banner})` : "none",
+                        maskImage: "linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, transparent 100%)",
+                    },
+                });
+
+                const content = tray.stack([
+                    tray.div([
+                        tray.text(media ? "AnimeThemes for" : "AnimeThemes", { className: "text-sm" }),
+                        tray.text(media?.title || "Open an anime page to detect it", {
+                            className: "font-bold text-xl line-clamp-2 break-normal text-pretty leading-tight",
+                        }),
+                    ], { className: "space-y-1 font-semibold h-20" }),
+                    tray.flex([
+                        tray.button("Toggle player", { intent: "primary", size: "md", onClick: "toggle-floating-player" }),
+                    ], { className: "justify-end" }),
+                ], { className: "p-2 space-y-2" });
+
+                return tray.div([banner, tray.div([content], { style: { position: "relative" } })], { style: { position: "relative" } });
+            });
+        }
 
         const button = ctx.action.newAnimePageButton({
             label: "\u200b",
@@ -278,7 +229,7 @@ function init() {
                 currentAnilistId = id;
 
                 // One AniList request per entry visit; the page button fills this for free.
-                if (currentMedia.get()?.id === id) return;
+                if (!showTrayPlayer || currentMedia.get()?.id === id) return;
                 currentMedia.set(toMediaInfo(id, $anilist.getAnime(Number(id))));
             });
             ctx.screen.loadCurrent();

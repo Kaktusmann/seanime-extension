@@ -2,12 +2,7 @@
 function init() {
     $ui.register((ctx) => {
 
-        const STORAGE_KEYS = {
-            AUTOPLAY:       "anime-player.autoplay",
-            PROVIDER:       "anime-player.provider",
-            VOLUME:         "anime-player.volume",
-            MANUAL_MATCHES: "anime-player.manualMatches",
-        } as const;
+        const MANUAL_MATCHES_KEY = "anime-player.manualMatches";
 
         // Embedded assets
         const PLAYER_CSS: string = "__PLAYER_CSS__";
@@ -16,29 +11,13 @@ function init() {
 
         const b64 = (s: string): string => Buffer.from(s, "utf8").toString("base64");
 
+        // userConfig values may arrive as strings (switch defaults are "true"/"false").
         const getSettings = () => ({
-            autoplay:      ($storage.get(STORAGE_KEYS.AUTOPLAY)       as boolean)                ?? true,
-            provider:      ($storage.get(STORAGE_KEYS.PROVIDER)       as string)                 ?? "animethemes",
-            volume:        ($storage.get(STORAGE_KEYS.VOLUME)         as number)                 ?? 0.7,
-            manualMatches: ($storage.get(STORAGE_KEYS.MANUAL_MATCHES) as Record<string, string>) ?? {},
+            autoplay:      $getUserPreference("autoplay") !== "false",
+            provider:      $getUserPreference("defaultProvider") || "animethemes",
+            volume:        Number($getUserPreference("initialVolume") ?? 0.7),
+            manualMatches: ($storage.get(MANUAL_MATCHES_KEY) as Record<string, string>) ?? {},
         });
-
-        const refs = {
-            autoplay: ctx.fieldRef(getSettings().autoplay),
-            provider: ctx.fieldRef(getSettings().provider),
-            volume:   ctx.fieldRef(getSettings().volume),
-        };
-
-        const tray = ctx.newTray({
-            tooltipText: "Anime Themes",
-            iconUrl: "https://raw.githubusercontent.com/jabifx/seanime-extensions/master/src/AnimeThemes/icon.ico",
-            withContent: true,
-            width: "28rem",
-        });
-
-        refs.autoplay.onValueChange((v) => $storage.set(STORAGE_KEYS.AUTOPLAY, v));
-        refs.provider.onValueChange((v) => $storage.set(STORAGE_KEYS.PROVIDER, v));
-        refs.volume.onValueChange((v)   => $storage.set(STORAGE_KEYS.VOLUME, v));
 
         const playerLocation = $getUserPreference("playerLocation") || "button";
         const showButton = playerLocation !== "tray";
@@ -56,71 +35,43 @@ function init() {
             };
         };
 
-        const labeledField = (label: string, control: any) =>
-            tray.flex([
-                tray.text(label, {
-                    className: "flex items-center w-40 shrink-0 whitespace-nowrap px-3 bg-gray-800 rounded-l-xl border text-sm",
-                    style: { marginRight: "-1px" },
-                }),
-                control,
-            ], { gap: 0 });
-
-        const controlStyle = { borderRadius: "0 0.75rem 0.75rem 0", background: "rgb(var(--color-gray-900))" };
-
-        tray.render(() => {
-            const fields = [
-                labeledField("Default provider", tray.select("", {
-                    fieldRef: refs.provider,
-                    options: [
-                        { label: "AnimeThemes", value: "animethemes" },
-                        { label: "AniSongDB",   value: "anisongdb"   },
-                    ],
-                    style: controlStyle,
-                })),
-                labeledField("Initial volume", tray.select("", {
-                    fieldRef: refs.volume,
-                    options: [
-                        { label: "0%",   value: 0.0  },
-                        { label: "25%",  value: 0.25 },
-                        { label: "50%",  value: 0.5  },
-                        { label: "75%",  value: 0.75 },
-                        { label: "100%", value: 1    },
-                    ],
-                    style: controlStyle,
-                })),
-                labeledField("Autoplay first OP", tray.switch("", { fieldRef: refs.autoplay })),
-            ];
-
-            const media = currentMedia.get();
-
-            const banner = tray.div([], {
-                className: "absolute h-40 rounded-t-xl bg-center bg-cover pointer-events-none",
-                style: {
-                    top: "-0.75rem",
-                    left: "-0.75rem",
-                    width: "calc(100% + 1.5rem)",
-                    backgroundImage: media?.banner ? `url(${media.banner})` : "none",
-                    maskImage: "linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, transparent 100%)",
-                },
+        if (showTrayPlayer) {
+            const tray = ctx.newTray({
+                tooltipText: "Anime Themes",
+                iconUrl: "https://raw.githubusercontent.com/jabifx/seanime-extensions/master/src/AnimeThemes/icon.ico",
+                withContent: true,
+                width: "28rem",
             });
 
-            const content = tray.stack([
-                tray.div([
-                    tray.text(media ? "AnimeThemes for" : "AnimeThemes", { className: "text-sm" }),
-                    tray.text(media?.title || "Open an anime page to detect it", {
-                        className: "font-bold text-xl line-clamp-2 break-normal text-pretty leading-tight",
-                    }),
-                ], { className: "space-y-1 font-semibold h-20" }),
-                tray.div(fields, { className: "space-y-2" }),
-                ...(showTrayPlayer
-                    ? [tray.flex([
-                        tray.button("Toggle player", { intent: "primary", size: "md", onClick: "toggle-floating-player" }),
-                    ], { className: "justify-end" })]
-                    : []),
-            ], { className: "p-2 space-y-2" });
+            tray.render(() => {
+                const media = currentMedia.get();
 
-            return tray.div([banner, tray.div([content], { style: { position: "relative" } })], { style: { position: "relative" } });
-        });
+                const banner = tray.div([], {
+                    className: "absolute h-40 rounded-t-xl bg-center bg-cover pointer-events-none",
+                    style: {
+                        top: "-0.75rem",
+                        left: "-0.75rem",
+                        width: "calc(100% + 1.5rem)",
+                        backgroundImage: media?.banner ? `url(${media.banner})` : "none",
+                        maskImage: "linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, transparent 100%)",
+                    },
+                });
+
+                const content = tray.stack([
+                    tray.div([
+                        tray.text(media ? "AnimeThemes for" : "AnimeThemes", { className: "text-sm" }),
+                        tray.text(media?.title || "Open an anime page to detect it", {
+                            className: "font-bold text-xl line-clamp-2 break-normal text-pretty leading-tight",
+                        }),
+                    ], { className: "space-y-1 font-semibold h-20" }),
+                    tray.flex([
+                        tray.button("Toggle player", { intent: "primary", size: "md", onClick: "toggle-floating-player" }),
+                    ], { className: "justify-end" }),
+                ], { className: "p-2 space-y-2" });
+
+                return tray.div([banner, tray.div([content], { style: { position: "relative" } })], { style: { position: "relative" } });
+            });
+        }
 
         const button = ctx.action.newAnimePageButton({
             label: "\u200b",
@@ -278,7 +229,7 @@ function init() {
                 currentAnilistId = id;
 
                 // One AniList request per entry visit; the page button fills this for free.
-                if (currentMedia.get()?.id === id) return;
+                if (!showTrayPlayer || currentMedia.get()?.id === id) return;
                 currentMedia.set(toMediaInfo(id, $anilist.getAnime(Number(id))));
             });
             ctx.screen.loadCurrent();
