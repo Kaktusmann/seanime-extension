@@ -1,7 +1,7 @@
 {
   "id": "animethemes-new",
   "name": "AnimeThemes Player (NEW)",
-  "version": "2.1.2",
+  "version": "2.2.0",
   "manifestURI": "https://raw.githubusercontent.com/Kaktusmann/seanime-extension/refs/heads/main/src/animethemes-new/manifest.json",
   "language": "typescript",
   "type": "plugin",
@@ -14,11 +14,28 @@
   "plugin": {
     "version": "1",
     "permissions": {
-      "scopes": ["storage"],
+      "scopes": ["storage", "anilist"],
       "allow": {
         "unsafeFlags": [{"flag": "dom-script-manipulation", "reason": "required for the plugin to modify app UI"}]
       }
     }
+  },
+  "userConfig": {
+    "requiresConfig": false,
+    "version": 1,
+    "fields": [
+      {
+        "name": "playerLocation",
+        "label": "Player location",
+        "type": "select",
+        "default": "button",
+        "options": [
+          { "label": "Anime page button", "value": "button" },
+          { "label": "Tray floating player", "value": "tray" },
+          { "label": "Both", "value": "both" }
+        ]
+      }
+    ]
   },
   "isDevelopment": false
 }

@@ -33,29 +33,51 @@ function init() {
             tooltipText: "Anime Themes",
             iconUrl: "https://raw.githubusercontent.com/jabifx/seanime-extensions/master/src/AnimeThemes/icon.ico",
             withContent: true,
+            width: "28rem",
         });
 
-        ctx.registerEventHandler("save-player-settings", () => {
-            $storage.set(STORAGE_KEYS.AUTOPLAY, refs.autoplay.current);
-            $storage.set(STORAGE_KEYS.PROVIDER, refs.provider.current);
-            $storage.set(STORAGE_KEYS.VOLUME,   refs.volume.current);
-            ctx.toast.success("Settings saved!");
-        });
+        refs.autoplay.onValueChange((v) => $storage.set(STORAGE_KEYS.AUTOPLAY, v));
+        refs.provider.onValueChange((v) => $storage.set(STORAGE_KEYS.PROVIDER, v));
+        refs.volume.onValueChange((v)   => $storage.set(STORAGE_KEYS.VOLUME, v));
+
+        const playerLocation = $getUserPreference("playerLocation") || "button";
+        const showButton = playerLocation !== "tray";
+        const showTrayPlayer = playerLocation !== "button";
+
+        const currentMedia = ctx.state<{ id: string; title: string; banner: string } | null>(null);
+
+        // Host objects can expose title fields that aren't plain JS strings, which tray.text rejects.
+        const toMediaInfo = (id: string, media: any) => {
+            const title = media?.title?.userPreferred ?? media?.title?.romaji;
+            return {
+                id,
+                title: title ? String(title) : `Anime ${id}`,
+                banner: media?.bannerImage ? String(media.bannerImage) : "",
+            };
+        };
+
+        const labeledField = (label: string, control: any) =>
+            tray.flex([
+                tray.text(label, {
+                    className: "flex items-center w-40 shrink-0 whitespace-nowrap px-3 bg-gray-800 rounded-l-xl border text-sm",
+                    style: { marginRight: "-1px" },
+                }),
+                control,
+            ], { gap: 0 });
+
+        const controlStyle = { borderRadius: "0 0.75rem 0.75rem 0", background: "rgb(var(--color-gray-900))" };
 
         tray.render(() => {
-            const items = [
-                tray.text("AnimeThemes Settings", {
-                    style: { fontWeight: "bold", fontSize: "14px", marginBottom: "8px" },
-                }),
-                tray.select("Default Provider", {
+            const fields = [
+                labeledField("Default provider", tray.select("", {
                     fieldRef: refs.provider,
                     options: [
                         { label: "AnimeThemes", value: "animethemes" },
                         { label: "AniSongDB",   value: "anisongdb"   },
                     ],
-                    help: "Can also be toggled inside the player",
-                }),
-                tray.select("Initial Volume", {
+                    style: controlStyle,
+                })),
+                labeledField("Initial volume", tray.select("", {
                     fieldRef: refs.volume,
                     options: [
                         { label: "0%",   value: 0.0  },
@@ -64,11 +86,40 @@ function init() {
                         { label: "75%",  value: 0.75 },
                         { label: "100%", value: 1    },
                     ],
-                }),
-                tray.switch("Autoplay first OP", { fieldRef: refs.autoplay }),
-                tray.button("Save Settings", { onClick: "save-player-settings", intent: "primary-subtle" }),
+                    style: controlStyle,
+                })),
+                labeledField("Autoplay first OP", tray.switch("", { fieldRef: refs.autoplay })),
             ];
-            return tray.stack({ items, style: { gap: "12px", padding: "8px" } });
+
+            const media = currentMedia.get();
+
+            const banner = tray.div([], {
+                className: "absolute h-40 rounded-t-xl bg-center bg-cover pointer-events-none",
+                style: {
+                    top: "-0.75rem",
+                    left: "-0.75rem",
+                    width: "calc(100% + 1.5rem)",
+                    backgroundImage: media?.banner ? `url(${media.banner})` : "none",
+                    maskImage: "linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, transparent 100%)",
+                },
+            });
+
+            const content = tray.stack([
+                tray.div([
+                    tray.text(media ? "AnimeThemes for" : "AnimeThemes", { className: "text-sm" }),
+                    tray.text(media?.title || "Open an anime page to detect it", {
+                        className: "font-bold text-xl line-clamp-2 break-normal text-pretty leading-tight",
+                    }),
+                ], { className: "space-y-1 font-semibold h-20" }),
+                tray.div(fields, { className: "space-y-2" }),
+                ...(showTrayPlayer
+                    ? [tray.flex([
+                        tray.button("Toggle player", { intent: "primary", size: "md", onClick: "toggle-floating-player" }),
+                    ], { className: "justify-end" })]
+                    : []),
+            ], { className: "p-2 space-y-2" });
+
+            return tray.div([banner, tray.div([content], { style: { position: "relative" } })], { style: { position: "relative" } });
         });
 
         const button = ctx.action.newAnimePageButton({
@@ -85,10 +136,17 @@ function init() {
             },
             tooltipText: "Anime Themes",
         });
-        button.mount();
+        if (showButton) button.mount();
 
         // State
-        let lastInjectedId: string | null = null;
+        // "" means injected without an anime page (tray); undefined means no player.
+        let lastInjectedId: string | undefined;
+
+        // The player can dock/undock itself in-page, so the DOM is the source of truth.
+        const isFloating = async (): Promise<boolean> => {
+            const root = await ctx.dom.queryOne("#anime-theme-player-root");
+            return root ? Boolean(await root.hasClass("floating")) : false;
+        };
         let currentAnilistId: string | null = null;
         let trackedScript: any = null;
 
@@ -108,7 +166,7 @@ function init() {
             if (el) { try { await el.remove(); } catch (_) {} }
         };
 
-        const injectPlayer = async (anilistId: any): Promise<void> => {
+        const injectPlayer = async (anilistId: any, floating: boolean): Promise<void> => {
             if (trackedScript) {
                 try { await trackedScript.remove(); } catch (_) {}
                 trackedScript = null;
@@ -127,7 +185,12 @@ function init() {
                 "st.textContent=" + JSON.stringify(PLAYER_CSS) + ";" +
                 "document.head.appendChild(st);" +
                 "var ip=document.querySelector('[data-anime-entry-page-content-container=\"true\"]');" +
-                "if(!ip){console.error('AnimeThemes: Container not found');return;}" +
+                (floating
+                    // Replacing a docked player: give the page back what it hid.
+                    ? "if(ip)ip.style.display='';" +
+                      "var gr=document.querySelector('[data-media-page-header-banner-bottom-gradient=\"true\"]');" +
+                      "if(gr)gr.style.pointerEvents='';"
+                    : "if(!ip){console.error('AnimeThemes: Container not found');return;}") +
 
                 // Create wrapper
                 "var wr=document.createElement('div');" +
@@ -135,8 +198,9 @@ function init() {
                 "wr.id='anime-theme-player-root';" +
                 "wr.innerHTML=" + JSON.stringify(PLAYER_HTML) + ";" +
 
-                "ip.parentNode.insertBefore(wr, ip);" +
-                "ip.style.display='none';" +
+                (floating
+                    ? "wr.classList.add('floating');document.body.appendChild(wr);"
+                    : "ip.parentNode.insertBefore(wr, ip);ip.style.display='none';") +
 
                 "var ANILIST_ID="     + JSON.stringify(anilistId)       + ";" +
                 "var INITIAL_VOLUME=" + s.volume                        + ";" +
@@ -147,7 +211,7 @@ function init() {
                 "})();";
 
             trackedScript = await exec(payload);
-            lastInjectedId = anilistId;
+            lastInjectedId = anilistId ?? "";
         };
 
         // The player's own X button hides the root in-page, so visibility is read from the DOM, not tracked here.
@@ -159,35 +223,43 @@ function init() {
                 "w.style.display=v?'block':'none';" +
 
                 "var c=document.querySelector('[data-anime-entry-page-content-container=\"true\"]');" +
-                "if(c)c.style.display=v?'none':'';" +
+                "if(c&&!w.classList.contains('floating'))c.style.display=v?'none':'';" +
 
                 "var g=document.querySelector('[data-media-page-header-banner-bottom-gradient=\"true\"]');" +
-                "if(g)g.style.pointerEvents=v?'none':'';" +
+                "if(g&&!w.classList.contains('floating'))g.style.pointerEvents=v?'none':'';" +
 
                 "if(!v){var vid=document.querySelector('#anime-theme-player video');if(vid)vid.pause();}})();"
             );
 
-        button.onClick(async (e: { media: $app.AL_BaseAnime }) => {
-            currentAnilistId = e.media.id.toString();
-
-            if (lastInjectedId === currentAnilistId) {
+        const togglePlayer = async (floating: boolean): Promise<void> => {
+            if (lastInjectedId === (currentAnilistId ?? "") && await isFloating() === floating) {
                 await setVisible("toggle");
                 return;
             }
 
+            await injectPlayer(currentAnilistId, floating);
+            await setVisible(true);
+        };
+
+        ctx.registerEventHandler("toggle-floating-player", () => togglePlayer(true));
+
+        button.onClick(async (e: { media: $app.AL_BaseAnime }) => {
+            currentAnilistId = e.media.id.toString();
+            currentMedia.set(toMediaInfo(currentAnilistId, e.media));
             button.setLoading(true);
             try {
-                await injectPlayer(currentAnilistId);
+                await togglePlayer(false);
             } finally {
                 button.setLoading(false);
             }
-
-            await setVisible(true);
         });
 
         ctx.dom.onReady(() => {
             ctx.screen.onNavigate(async (e: any) => {
-                if (e.pathname !== "/entry") {
+                if (e.pathname !== "/entry") currentMedia.set(null);
+
+                // The floating player is meant to keep playing across pages.
+                if (e.pathname !== "/entry" && !(await isFloating())) {
                     if (trackedScript) {
                         try { await trackedScript.remove(); } catch (_) {}
                         trackedScript = null;
@@ -197,12 +269,17 @@ function init() {
                         "var c=document.querySelector('[data-anime-player=\"css\"]');if(c)c.remove();" +
                         "var m=document.querySelector('[data-anime-entry-page-content-container=\"true\"]');if(m)m.style.display='';"
                     );
-                    lastInjectedId = null;
+                    lastInjectedId = undefined;
                     currentAnilistId = null;
                     return;
                 }
                 const id = e.searchParams?.id;
-                if (id) currentAnilistId = id;
+                if (!id) return;
+                currentAnilistId = id;
+
+                // One AniList request per entry visit; the page button fills this for free.
+                if (currentMedia.get()?.id === id) return;
+                currentMedia.set(toMediaInfo(id, $anilist.getAnime(Number(id))));
             });
             ctx.screen.loadCurrent();
         });

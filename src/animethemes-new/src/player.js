@@ -5,6 +5,7 @@ const els = {
     providerLabel:    $("atp-provider-label"),
     nowPlaying:       $("atp-now-playing"),
     toggleListBtn:    $("atp-toggle-list"),
+    dockBtn:          $("atp-dock-btn"),
     manualBtn:        $("atp-manual-btn"),
     manualDot:        $("atp-manual-dot"),
     providerBtn:      $("atp-provider-btn"),
@@ -21,6 +22,9 @@ const els = {
     playBtn:          $("atp-play-btn"),
     playIcon:         $("atp-play-icon"),
     pauseIcon:        $("atp-pause-icon"),
+    prevBtn:          $("atp-prev-btn"),
+    nextBtn:          $("atp-next-btn"),
+    speedSelect:      $("atp-speed-select"),
     skipBack:         $("atp-skip-back"),
     skipFwd:          $("atp-skip-fwd"),
     audioOnlyBtn:     $("atp-audio-only-btn"),
@@ -41,11 +45,13 @@ const els = {
 
 let video           = null;
 let currentVolume   = INITIAL_VOLUME;
+let playbackRate    = 1;
 let isMuted         = false;
 let isAudioOnly     = false;
 let isListVisible   = true;
 let isManualVisible = false;
 let attemptedProviders = new Set();
+const manualAnimeThemesIds = {};
 
 // Helpers
 const fmt = (s) => {
@@ -106,6 +112,9 @@ const ensureVideo = () => {
     video.controls = false;
     video.volume   = currentVolume;
     video.muted    = isMuted;
+    // Assigning a new src resets playbackRate to defaultPlaybackRate.
+    video.defaultPlaybackRate = playbackRate;
+    video.playbackRate        = playbackRate;
 
     video.addEventListener("timeupdate", () => {
         if (!video.duration) return;
@@ -292,7 +301,7 @@ const animeThemesQuery = async (query, variables) => {
     return json.data;
 };
 
-const fetchAnimeThemes = async () => {
+const fetchAnimeThemes = async (anilistId = ANILIST_ID) => {
     const data = await animeThemesQuery(
         `query ($id: Int!) {
             filterAnimeByExternalSite(site: ANILIST, id: [$id]) {
@@ -305,7 +314,7 @@ const fetchAnimeThemes = async () => {
                 }
             }
         }`,
-        { id: Number(ANILIST_ID) }
+        { id: Number(anilistId) }
     );
     const anime = data.filterAnimeByExternalSite[0];
     if (!anime?.themes?.length) throw new Error("No themes found");
@@ -402,10 +411,26 @@ const fetchAniSongDBDirect = async (query) => {
 };
 
 const fetchThemes = async (providerOverride) => {
-    const provider = providerOverride || PROVIDER;
+    // Opened from the tray with no anime page: wait for the user to pick one.
+    if (!ANILIST_ID) {
+        setThemesError("Search for an anime to load its themes.");
+        return;
+    }
 
-    // Check manual match override
+    const provider = providerOverride || PROVIDER;
     const manualId = MANUAL_MATCHES[ANILIST_ID];
+    const manualAnimeThemesId = manualAnimeThemesIds[ANILIST_ID];
+
+    if (manualAnimeThemesId) {
+        setThemesLoading("Loading themes for manual match…");
+        try {
+            renderThemes(await fetchAnimeThemes(manualAnimeThemesId));
+        } catch (err) {
+            console.error("[AnimeThemes] manual match failed:", err);
+            setThemesError("No themes found on AnimeThemes.");
+        }
+        return;
+    }
 
     if (manualId) {
         setThemesLoading("Loading themes for manual match…");
@@ -526,8 +551,17 @@ const displayAnimeResults = (results, provider) => {
 
     els.animeResults.querySelectorAll(".anime-result-item").forEach(item => {
         item.addEventListener("click", () => {
-            const name = item.dataset.name;
-            MANUAL_MATCHES[ANILIST_ID] = name;
+            if (!ANILIST_ID) {
+                // Nothing to override: the result itself is the anime to play.
+                ANILIST_ID = item.dataset.anilistId;
+                PROVIDER = provider;
+                setProviderLabel();
+                attemptedProviders.clear();
+            } else {
+                MANUAL_MATCHES[ANILIST_ID] = item.dataset.name;
+                if (provider === "animethemes") manualAnimeThemesIds[ANILIST_ID] = item.dataset.anilistId;
+                else delete manualAnimeThemesIds[ANILIST_ID];
+            }
 
             // close manual panel
             isManualVisible = false;
@@ -550,6 +584,34 @@ els.playBtn.addEventListener("click", () => {
     else video.pause();
 });
 
+// previous / next theme
+const RESTART_THRESHOLD_SECONDS = 3;
+
+const playSibling = (sibling) => {
+    if (sibling) playTheme(sibling, true);
+};
+
+els.nextBtn.addEventListener("click", () => {
+    playSibling(els.themesList.querySelector(".theme-item.active")?.nextElementSibling);
+});
+
+els.prevBtn.addEventListener("click", () => {
+    if (video?.src && video.currentTime > RESTART_THRESHOLD_SECONDS) {
+        video.currentTime = 0;
+        video.play().catch(() => {});
+        return;
+    }
+    playSibling(els.themesList.querySelector(".theme-item.active")?.previousElementSibling);
+});
+
+// playback speed
+els.speedSelect.addEventListener("change", () => {
+    playbackRate = Number(els.speedSelect.value);
+    if (!video) return;
+    video.defaultPlaybackRate = playbackRate;
+    video.playbackRate        = playbackRate;
+});
+
 // skip
 els.skipBack.addEventListener("click", () => { if (video?.src) video.currentTime = Math.max(0, video.currentTime - 10); });
 els.skipFwd.addEventListener("click",  () => { if (video?.src) video.currentTime = Math.min(video.duration || 0, video.currentTime + 10); });
@@ -562,9 +624,16 @@ els.progressBar.addEventListener("click", e => {
 });
 
 // volume
-els.volumeTrack.addEventListener("click", e => {
+const setVolumeFromPointer = (e) => {
     const rect = els.volumeTrack.getBoundingClientRect();
     setVolume((e.clientX - rect.left) / rect.width);
+};
+els.volumeTrack.addEventListener("pointerdown", e => {
+    els.volumeTrack.setPointerCapture(e.pointerId);
+    setVolumeFromPointer(e);
+});
+els.volumeTrack.addEventListener("pointermove", e => {
+    if (els.volumeTrack.hasPointerCapture(e.pointerId)) setVolumeFromPointer(e);
 });
 
 // mute
@@ -577,6 +646,37 @@ els.audioOnlyBtn.addEventListener("click", () => setAudioOnly(!isAudioOnly));
 els.fullscreenBtn.addEventListener("click", () => {
     if (!video) return;
     (video.requestFullscreen || video.webkitRequestFullscreen)?.call(video);
+});
+
+// float / dock
+const ENTRY_CONTENT_SELECTOR = '[data-anime-entry-page-content-container="true"]';
+const BANNER_GRADIENT_SELECTOR = '[data-media-page-header-banner-bottom-gradient="true"]';
+
+els.dockBtn.addEventListener("click", () => {
+    const root = $("anime-theme-player-root");
+    const content = document.querySelector(ENTRY_CONTENT_SELECTOR);
+    const gradient = document.querySelector(BANNER_GRADIENT_SELECTOR);
+    const floating = root.classList.contains("floating");
+
+    // Docking replaces the entry page content, so it only works on the entry page.
+    if (floating && !content) return;
+
+    // Moving the node pauses the video.
+    const wasPlaying = video && !video.paused;
+
+    if (floating) {
+        content.parentNode.insertBefore(root, content);
+        content.style.display = "none";
+        if (gradient) gradient.style.pointerEvents = "none";
+    } else {
+        document.body.appendChild(root);
+        if (content) content.style.display = "";
+        if (gradient) gradient.style.pointerEvents = "";
+    }
+    root.classList.toggle("floating", !floating);
+    els.dockBtn.classList.toggle("active", !floating);
+
+    if (wasPlaying) video.play().catch(() => {});
 });
 
 // toggle list
@@ -642,6 +742,7 @@ els.manualInput.addEventListener("keypress", e => {
 // manual clear
 els.manualClearBtn.addEventListener("click", async () => {
     delete MANUAL_MATCHES[ANILIST_ID];
+    delete manualAnimeThemesIds[ANILIST_ID];
     els.manualInput.value = "";
     els.animeResults.classList.remove("visible");
     els.animeResults.innerHTML = "";
@@ -655,6 +756,7 @@ els.manualClearBtn.addEventListener("click", async () => {
     els.manualBtn.classList.remove("active");
 });
 
+els.dockBtn.classList.toggle("active", $("anime-theme-player-root").classList.contains("floating"));
 setVolume(INITIAL_VOLUME);
 setProviderLabel();
 updateManualDot();
